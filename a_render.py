@@ -6,7 +6,7 @@ import scipy.sparse as sp
 import shutil
 import time
 
-from utils import *
+from x_utils import *
 
 DEBUG = False
 FROM = 0
@@ -14,6 +14,8 @@ TO = 10000
 
 BACKGROUND_COLOR = C_WHITE
 SIZE = (8.0 * 16 / 9, 8.0)
+
+RENDER_PATH = f"{PATH}\\media\\images\\a_render"
 
 config.background_color = BACKGROUND_COLOR
 config.max_files_cached = 1000
@@ -28,7 +30,7 @@ def render_slides():
     framerate = DEBUG_FRAMERATE if DEBUG else DEFAULT_FRAMERATE
 
     filename = os.path.realpath(__file__)
-    command = f"manim {filename} MainScene --resolution {width},{height} --frame_rate {framerate} --format=png --from_animation_number {FROM},{TO}"
+    command = f"manim {filename} PresentationScene --resolution {width},{height} --frame_rate {framerate} --format=png --disable_caching --from_animation_number {FROM},{TO}"
 
     print(f"\033[0;32m{command}\033[0m")
     exit_code = os.system(command)
@@ -43,7 +45,7 @@ def render_slides():
     print("\033[34;1mCopying frames...\033[0m")
 
     for filename in os.listdir(RENDER_PATH):
-        nr = int(filename[9:-4])
+        nr = int("".join(c for c in filename if c.isdigit()))
         shutil.copyfile(f"{RENDER_PATH}/{filename}", f"{OUTPUT_PATH}/{nr:06}.png")
 
     duration = int(time.time() - start_time)
@@ -51,7 +53,7 @@ def render_slides():
 
     return exit_code
 
-class MainScene(MovingCameraScene):
+class PresentationScene(MovingCameraScene):
     ########################################
     #                                      #
     #            HELPER METHODS            #
@@ -70,12 +72,12 @@ class MainScene(MovingCameraScene):
         self.page_number += 1
 
         self.page_number_background = always_redraw(
-            lambda: Rectangle(C_WHITE, 0.4, 0.6).set_fill(opacity=1).set_stroke(C_WHITE, opacity=0.5, width=6 * self.camera.frame_height / 8.0).round_corners(0.1) \
+            lambda: Rectangle(C_WHITE, 0.4, 0.6).round_corners(0.1).set_fill(opacity=1).set_stroke(C_WHITE, opacity=0.5, width=6 * self.camera.frame_height / 8.0) \
                 .to_corner(DOWN + RIGHT).scale(self.camera.frame_height / 8.0, about_point=ORIGIN).shift(self.camera.frame_center) \
                 .set_z_index(101)
         )
         self.page_number_text = always_redraw(
-            lambda: Text("###" if DEBUG else str(self.page_number), color=C_DARK_GRAY).set_stroke(opacity=0) \
+            lambda: Text(str(self.page_number), color=C_DARK_GRAY).set_stroke(opacity=0) \
                 .scale(0.4 * self.camera.frame_height / 8.0).move_to(self.page_number_background)
                 .set_z_index(102)
         )
@@ -224,26 +226,31 @@ class MainScene(MovingCameraScene):
             for ix in range(n):
                 temperatures[iy][ix] = values[(iy + 1) * (n + 2) + (ix + 1)]
 
-        wall_left = Rectangle(C_ORANGE, size + thickness, thickness).set_stroke(opacity=0).set_fill(opacity=1)
-        wall_left.move_to((-size / 2 - thickness / 2, 0, 0))
-        wall_right = Rectangle(C_BLUE, size + thickness, thickness).set_stroke(opacity=0).set_fill(opacity=1)
-        wall_right.move_to((size / 2 + thickness / 2, 0, 0))
-        wall_bottom = Rectangle(C_LIGHT_GRAY, thickness, size + 2 * thickness).set_stroke(opacity=0).set_fill(opacity=1)
-        wall_bottom.move_to((0, -size / 2 - thickness / 2, 0))
-        wall_top = Rectangle(C_ORANGE, thickness, size + 2 * thickness).set_stroke(opacity=0).set_fill(opacity=1)
-        wall_top.move_to((0, size / 2 + thickness / 2, 0))
+        spacing = size / n
+
+        walls = [None] * 4
+        a, b = spacing * n / 2 + 0.01, spacing * (n / 2 + 1) - 0.01
+        walls[0] = Polygon(
+            np.array([-a, a, 0]),
+            np.array([-b, b, 0]),
+            np.array([-b, -b, 0]),
+            np.array([-a, -a, 0]),
+        ).set_fill(C_ORANGE, opacity=1).set_stroke(opacity=0)
+        walls[1] = walls[0].copy().rotate(np.pi / 2, about_point=ORIGIN).set_fill(C_LIGHT_GRAY)
+        walls[2] = walls[1].copy().rotate(np.pi / 2, about_point=ORIGIN).set_fill(C_BLUE)
+        walls[3] = walls[2].copy().rotate(np.pi / 2, about_point=ORIGIN).set_fill(C_ORANGE)
         self.play(
-            FadeIn(wall_left, shift=UP),
-            FadeIn(wall_right, shift=UP),
-            FadeIn(wall_bottom, shift=UP),
-            FadeIn(wall_top, shift=UP),
+            FadeIn(walls[0], shift=0.5 * RIGHT),
+            FadeIn(walls[1], shift=0.5 * UP),
+            FadeIn(walls[2], shift=0.5 * LEFT),
+            FadeIn(walls[3], shift=0.5 * DOWN),
             run_time=0.8
         )
         self.pause("Setup walls")
 
-        circles = [[None] * n for _ in range(n)]
-        circles_hot = [[None] * n for _ in range(n)]
-        circles_cold = [[None] * n for _ in range(n)]
+        cells = [[None] * n for _ in range(n)]
+        cells_hot = [[None] * n for _ in range(n)]
+        cells_cold = [[None] * n for _ in range(n)]
         question_marks = [[None] * n for _ in range(n)]
         for iy in range(n):
             for ix in range(n):
@@ -252,30 +259,30 @@ class MainScene(MovingCameraScene):
 
                 temperature = temperatures[iy][ix]
 
-                circle = Circle(0.48 * size / n).set_stroke(width=0).set_fill(C_LIGHT_GRAY, opacity=1)
-                circle.move_to((x, y, 0))
-                circles[iy][ix] = circle
+                cell = Square(0.96 * spacing).round_corners(0.05).set_stroke(width=0).set_fill(C_LIGHT_GRAY, opacity=1)
+                cell.move_to((x, y, 0))
+                cells[iy][ix] = cell
 
-                circle_hot = Circle(0.48 * size / n).set_stroke(width=0).set_fill(C_ORANGE, opacity=1).set_opacity(temperature)
-                circle_hot.move_to((x, y, 0))
-                circles_hot[iy][ix] = circle_hot
+                cell_hot = Square(0.96 * spacing).round_corners(0.05).set_stroke(width=0).set_fill(C_ORANGE, opacity=1).set_opacity(temperature)
+                cell_hot.move_to((x, y, 0))
+                cells_hot[iy][ix] = cell_hot
 
-                circle_cold = Circle(0.48 * size / n).set_stroke(width=0).set_fill(C_BLUE, opacity=1).set_opacity(-temperature)
-                circle_cold.move_to((x, y, 0))
-                circles_cold[iy][ix] = circle_cold
+                cell_cold = Square(0.96 * spacing).round_corners(0.05).set_stroke(width=0).set_fill(C_BLUE, opacity=1).set_opacity(-temperature)
+                cell_cold.move_to((x, y, 0))
+                cells_cold[iy][ix] = cell_cold
 
                 question_mark = Tex("$\\textbf{?}$", color=C_DARK_GRAY)
-                question_mark.scale(0.8).move_to(circle)
+                question_mark.scale(0.8).move_to(cell)
                 question_marks[iy][ix] = question_mark
-        circles_flat = [obj for row in circles for obj in row if obj]
-        circles_hot_flat = [obj for row in circles_hot for obj in row if obj]
-        circles_cold_flat = [obj for row in circles_cold for obj in row if obj]
+        cells_flat = [obj for row in cells for obj in row if obj]
+        cells_hot_flat = [obj for row in cells_hot for obj in row if obj]
+        cells_cold_flat = [obj for row in cells_cold for obj in row if obj]
         question_marks_flat = [obj for row in question_marks for obj in row if obj]
 
         indices_examples = [3 * n + (n - 3), (n - 2) * n + 5]
         for idx in indices_examples:
             self.play(
-                FadeIn(circles_flat[idx], scale=5),
+                FadeIn(cells_flat[idx], scale=5),
                 FadeIn(question_marks_flat[idx], scale=5),
                 run_time=0.4
             )
@@ -283,29 +290,29 @@ class MainScene(MovingCameraScene):
 
             self.play(
                 FadeOut(question_marks_flat[idx], scale=0),
-                FadeIn(circles_hot_flat[idx], scale=0),
-                FadeIn(circles_cold_flat[idx], scale=0),
+                FadeIn(cells_hot_flat[idx], scale=0),
+                FadeIn(cells_cold_flat[idx], scale=0),
                 run_time=0.4
             )
             self.pause(f"Solve node {idx}")
 
         self.play(
-            *[FadeIn(obj, scale=0) for j, obj in enumerate(circles_flat) if j not in indices_examples],
+            *[FadeIn(obj, scale=0) for j, obj in enumerate(cells_flat) if j not in indices_examples],
             *[FadeIn(obj, scale=0) for j, obj in enumerate(question_marks_flat) if j not in indices_examples],
             run_time=0.4
         )
         self.pause("Show all unsolved positions")
 
         animations = []
-        indices = sorted(range(len(circles_flat)), key=lambda x: (x % n) + -(x // n))
+        indices = sorted(range(len(cells_flat)), key=lambda x: (x % n) + -(x // n))
         for idx in indices:
             if idx in indices_examples:
                 continue
             animations.append(
                 AnimationGroup(
                     FadeOut(question_marks_flat[idx], scale=0),
-                    FadeIn(circles_hot_flat[idx], scale=0),
-                    FadeIn(circles_cold_flat[idx], scale=0),
+                    FadeIn(cells_hot_flat[idx], scale=0),
+                    FadeIn(cells_cold_flat[idx], scale=0),
                     run_time=0.4
                 )
             )
@@ -321,12 +328,12 @@ class MainScene(MovingCameraScene):
 
         fx, fy = 2, 4
 
-        to_zoom_disappear = Group(*circles_hot_flat, *circles_cold_flat, *[obj for j, obj in enumerate(circles_flat) if j != fy * n + fx])
+        to_zoom_disappear = Group(*cells_hot_flat, *cells_cold_flat, *[obj for j, obj in enumerate(cells_flat) if j != fy * n + fx])
         camera_zoom_1 = 3.6
         self.play(
             *[FadeOut(obj) for obj in to_zoom_disappear],
             FadeIn(question_marks[fy][fx], scale=0),
-            self.camera.frame.animate.scale(1 / camera_zoom_1).shift(circles[fy][fx + 1].get_center()),
+            self.camera.frame.animate.scale(1 / camera_zoom_1).shift(cells[fy][fx + 1].get_center()),
             run_time=1.6
         )
         self.pause("Zoom in")
@@ -339,17 +346,17 @@ class MainScene(MovingCameraScene):
             ny = fy - (d == 2) + (d == 3)
 
             temperature = temps[d]
-            circles[ny][nx].set_opacity(opacity=1)
-            circles_hot[ny][nx].set_opacity(opacity=temperature)
-            circles_cold[ny][nx].set_opacity(opacity=-temperature)
+            cells[ny][nx].set_opacity(opacity=1)
+            cells_hot[ny][nx].set_opacity(opacity=temperature)
+            cells_cold[ny][nx].set_opacity(opacity=-temperature)
 
-            temperature_texts[d] = MathTex(f"{val_to_deg(temperature):.1f}\\small\\text{{ C}}^{{\\circ}}").scale(0.2)
-            temperature_texts[d].move_to(circles[ny][nx])
+            temperature_texts[d] = MathTex(f"{val_to_deg(temperature):.1f}\\small{{^{{\\circ}}\\text{{C}}}}").scale(0.2)
+            temperature_texts[d].move_to(cells[ny][nx])
 
             fade_in_animations.extend([
-                FadeIn(circles[ny][nx], scale=0),
-                FadeIn(circles_hot[ny][nx], scale=0),
-                FadeIn(circles_cold[ny][nx], scale=0),
+                FadeIn(cells[ny][nx], scale=0),
+                FadeIn(cells_hot[ny][nx], scale=0),
+                FadeIn(cells_cold[ny][nx], scale=0),
                 FadeIn(temperature_texts[d], scale=0)
             ])
 
@@ -360,31 +367,31 @@ class MainScene(MovingCameraScene):
         self.pause("Show neighbors")
 
         temperature_avg = sum(temps) / 4
-        temperature_texts[4] = MathTex(f"{val_to_deg(temperature_avg):.1f}\\small\\text{{ C}}^{{\\circ}}").scale(0.2)
-        temperature_texts[4].move_to(circles[fy][fx])
-        circles_hot[fy][fx].set_opacity(temperature_avg)
-        circles_cold[fy][fx].set_opacity(-temperature_avg)
+        temperature_texts[4] = MathTex(f"{val_to_deg(temperature_avg):.1f}\\small{{^{{\\circ}}\\text{{C}}}}").scale(0.2)
+        temperature_texts[4].move_to(cells[fy][fx])
+        cells_hot[fy][fx].set_opacity(temperature_avg)
+        cells_cold[fy][fx].set_opacity(-temperature_avg)
         to_move = []
         to_keep_in_front = []
         for d in range(4):
             nx = fx - (d == 0) + (d == 1)
             ny = fy - (d == 2) + (d == 3)
 
-            to_keep_in_front.append(circles[ny][nx])
-            to_keep_in_front.append(circles_hot[ny][nx])
+            to_keep_in_front.append(cells[ny][nx])
+            to_keep_in_front.append(cells_hot[ny][nx])
             to_keep_in_front.append(temperature_texts[d])
 
-            circle_hot_copy = circles_hot[ny][nx].copy()
-            circle_hot_copy.generate_target()
-            circle_hot_copy.target.move_to(circles[fy][fx])
-            circle_hot_copy.target.set_opacity(0)
-            to_move.append(circle_hot_copy)
+            cell_hot_copy = cells_hot[ny][nx].copy()
+            cell_hot_copy.generate_target()
+            cell_hot_copy.target.move_to(cells[fy][fx])
+            cell_hot_copy.target.set_opacity(0)
+            to_move.append(cell_hot_copy)
 
         self.add_foreground_mobjects(*to_keep_in_front)
         self.play(
             *[MoveToTarget(obj) for obj in to_move],
-            FadeIn(circles_hot[fy][fx]),
-            FadeIn(circles_cold[fy][fx]),
+            FadeIn(cells_hot[fy][fx]),
+            FadeIn(cells_cold[fy][fx]),
             FadeOut(question_marks[fy][fx], scale=0),
             FadeIn(temperature_texts[4], scale=0),
             run_time=0.8
@@ -393,29 +400,29 @@ class MainScene(MovingCameraScene):
         self.remove(*to_move)
         self.pause("Take average heat")
 
-        circle_outlines = [None] * 5
+        cell_outlines = [None] * 5
         for d in range(5):
             nx = fx - (d == 0) + (d == 1)
             ny = fy - (d == 2) + (d == 3)
 
-            circle_outline = circles[ny][nx].copy()
-            circle_outline.set_stroke(color=C_BLUE if d == 4 else C_GREEN, opacity=1, width=2.4).set_fill(opacity=0)
-            circle_outline.set_z_index(10 + (d == 4))
-            circle_outlines[d] = circle_outline
+            cell_outline = cells[ny][nx].copy()
+            cell_outline.set_stroke(color=C_PURPLE if d == 4 else C_GREEN, opacity=1, width=2.4).set_fill(opacity=0)
+            cell_outline.set_z_index(10 + (d == 4))
+            cell_outlines[d] = cell_outline
         self.play(
-            Create(circle_outlines[4]),
+            Create(cell_outlines[4]),
             run_time=0.4
         )
         self.pause("Show middle outline")
 
         self.play(
-            *[Create(obj) for obj in circle_outlines[:4]],
+            *[Create(obj) for obj in cell_outlines[:4]],
             run_time=0.4
         )
         self.pause("Show neighbor outlines")
 
-        system_container = Rectangle(C_GRAY, 1.2, 0.8).set_stroke(width=1.2).set_fill(C_WHITE, opacity=0.9)
-        system_container.move_to(circles[fy][fx + 1]).shift((1.2, 0.2, 0.0))
+        system_container = Rectangle(C_GRAY, 1.2, 0.8).set_stroke(width=1.2).set_fill(C_WHITE, opacity=1)
+        system_container.move_to(cells[fy][fx + 1]).shift((1.2, 0.2, 0.0))
         system_container.set_z_index(20)
         equation_tex = MathTex("x", "={", "y", "+", "y", "+", "y", "+", "y", "\\over 4}").set_fill(C_BLACK).scale(0.16)
         equation_tex.set_color_by_tex("x", C_WHITE)
@@ -425,19 +432,19 @@ class MainScene(MovingCameraScene):
         tex_parts = equation_tex.get_parts_by_tex("y")
         tex_parts.add(equation_tex.get_part_by_tex("x"))
         move_animations = []
-        equation_circles = [None] * 5
+        equation_cells = [None] * 5
         for d in range(5):
-            circle_equation = circle_outlines[d].copy()
-            circle_equation.set_z_index(30)
+            cell_equation = cell_outlines[d].copy()
+            cell_equation.set_z_index(30)
             move_animations.append(
-                circle_equation.animate
+                cell_equation.animate
                     .set_stroke(width=1.2)
                     .set_fill(LIGHT_GRAY, opacity=1)
                     .scale(0.24 if d == 4 else 0.12)
                     .move_to(tex_parts[d])
                     .shift(np.array([-0.02, 0.006, 0.0]) if d == 4 else np.array([0.0, 0.01, 0.0]))
             )
-            equation_circles[d] = circle_equation
+            equation_cells[d] = cell_equation
 
         self.play(
             FadeIn(system_container, scale=0.8),
@@ -453,7 +460,7 @@ class MainScene(MovingCameraScene):
 
         self.play(
             FadeOut(temperature_texts[4], scale=0),
-            FadeOut(circles_hot[fy][fx]),
+            FadeOut(cells_hot[fy][fx]),
             FadeIn(question_marks[fy][fx], scale=0),
             run_time=0.4
         )
@@ -466,7 +473,7 @@ class MainScene(MovingCameraScene):
 
             animations.extend([
                 FadeOut(temperature_texts[d], scale=0),
-                FadeOut(circles_hot[ny][nx]),
+                FadeOut(cells_hot[ny][nx]),
                 FadeIn(question_marks[ny][nx], scale=0),
             ])
         self.play(
@@ -480,34 +487,32 @@ class MainScene(MovingCameraScene):
             for ix in range(n):
                 if abs(fx - ix) + abs(fy - iy) == 2:
                     animations.extend([
-                        FadeIn(circles[iy][ix], scale=0),
+                        FadeIn(cells[iy][ix], scale=0),
                         FadeIn(question_marks[iy][ix], scale=0),
                     ])
         self.play(
-            # *[FadeOut(obj) for obj in circle_outlines],
-            # *[obj.animate.set_stroke(opacity=0) for obj in equation_circles],
             *animations,
             run_time=0.4
         )
         self.pause("Add two-ring vertices")
 
         equations_tex = [equation_tex] + [equation_tex.copy() for _ in range(4)]
-        equations_circles = [equation_circles] + [[obj.copy() for obj in equation_circles] for _ in range(4)]
+        equations_cells = [equation_cells] + [[obj.copy() for obj in equation_cells] for _ in range(4)]
         for i in range(1, 5):
             offset = DOWN * 0.2 * i
             equations_tex[i].generate_target()
             equations_tex[i].target.shift(offset)
             for j in range(5):
-                equations_circles[i][j].generate_target()
-                equations_circles[i][j].target.shift(offset)
+                equations_cells[i][j].generate_target()
+                equations_cells[i][j].target.shift(offset)
                 if j == 4:
-                    equations_circles[i][j].target.set_stroke(C_GREEN)
+                    equations_cells[i][j].target.set_stroke(C_GREEN)
                 elif j == i - 1:
-                    equations_circles[i][j].target.set_stroke(C_BLUE)
+                    equations_cells[i][j].target.set_stroke(C_PURPLE)
                 else:
-                    equations_circles[i][j].target.set_stroke(opacity=0)
+                    equations_cells[i][j].target.set_stroke(opacity=0)
         self.play(
-            *[MoveToTarget(equations_circles[i][j]) for i in range(1, 5) for j in range(5)],
+            *[MoveToTarget(equations_cells[i][j]) for i in range(1, 5) for j in range(5)],
             *[MoveToTarget(equations_tex[i]) for i in range(1, 5)],
             run_time=0.8
         )
@@ -518,23 +523,23 @@ class MainScene(MovingCameraScene):
             for ix in range(n):
                 if abs(fx - ix) + abs(fy - iy) == 3:
                     animations.extend([
-                        FadeIn(circles[iy][ix], scale=0),
+                        FadeIn(cells[iy][ix], scale=0),
                         FadeIn(question_marks[iy][ix], scale=0),
                     ])
-        circles_boundary = [[None] * n for _ in range(4)]
+        cells_boundary = [[None] * n for _ in range(4)]
+        cells_boundary_flat = []
         for i in range(4):
             for j in range(n):
                 jx, jy = [(j, 0), (j, n - 1), (0, j), (n - 1, j)][i]
-                circle = circles[jy][jx].copy()
-                circle.set_stroke(C_WHITE, width=2, opacity=1).set_fill([C_LIGHT_GRAY, C_ORANGE, C_ORANGE, C_BLUE][i], opacity=1)
-                circle.shift([DOWN, UP, LEFT, RIGHT][i] * size / n)
-                circles_boundary[i][j] = circle
+                cell = cells[jy][jx].copy()
+                cell.set_stroke(C_WHITE, width=2, opacity=1).set_fill([C_LIGHT_GRAY, C_ORANGE, C_ORANGE, C_BLUE][i], opacity=1)
+                cell.shift([DOWN, UP, LEFT, RIGHT][i] * spacing)
+                cells_boundary[i][j] = cell
+                cells_boundary_flat.append(cell)
         animations.extend([
-            FadeIn(circles_boundary[2][fy], scale=0),
+            FadeIn(cells_boundary[2][fy], scale=0),
         ])
         self.play(
-            # *[FadeOut(obj) for obj in circle_outlines],
-            # *[obj.animate.set_stroke(opacity=0) for obj in equation_circles],
             *animations,
             run_time=0.4
         )
@@ -543,65 +548,64 @@ class MainScene(MovingCameraScene):
         base = 4
         amount = 48 if not DEBUG else 8
         equations_tex += [equations_tex[base].copy() for _ in range(amount)]
-        equations_circles += [[obj.copy() for obj in equations_circles[base]] for _ in range(amount)]
-        equation_circle_orange = None
+        equations_cells += [[obj.copy() for obj in equations_cells[base]] for _ in range(amount)]
+        equation_cell_orange = None
         for i in range(5, 5 + amount):
             offset = DOWN * 0.2 * (i - base)
             equations_tex[i].generate_target()
             equations_tex[i].target.shift(offset)
             for j in range(5):
-                equations_circles[i][j].generate_target()
-                equations_circles[i][j].target.shift(offset)
+                equations_cells[i][j].generate_target()
+                equations_cells[i][j].target.shift(offset)
                 if (i, j) == (6, 2):
-                    equations_circles[i][j].target.set_fill(C_ORANGE)
-                    equation_circle_orange = equations_circles[i][j]
+                    equations_cells[i][j].target.set_fill(C_ORANGE)
+                    equation_cell_orange = equations_cells[i][j]
                 if (i, j) in [(5, 3), (6, 0), (7, 1), (7, 3), (9, 1), (10, 2)]:
-                    equations_circles[i][j].target.set_stroke(C_GREEN, opacity=1)
+                    equations_cells[i][j].target.set_stroke(C_GREEN, opacity=1)
                 else:
-                    equations_circles[i][j].target.set_stroke(opacity=0)
+                    equations_cells[i][j].target.set_stroke(opacity=0)
         factor = 8
         self.play(
-            *[MoveToTarget(equations_circles[i][j]) for i in range(5, len(equations_circles)) for j in range(5)],
+            *[MoveToTarget(equations_cells[i][j]) for i in range(5, len(equations_cells)) for j in range(5)],
             *[MoveToTarget(equations_tex[i]) for i in range(5, len(equations_tex))],
             system_container.animate.stretch(factor, dim=1).shift(DOWN * system_container.height * (factor - 1) / 2),
             run_time=0.8
         )
         self.pause("Add many more equations")
 
-        animations = [FadeIn(circles_boundary[i][j], scale=0) for i in range(4) for j in range(n) if (i, j) != (2, fy)]
-        for iy in range(n):
-            for ix in range(n):
-                if abs(fx - ix) + abs(fy - iy) > 3:
-                    animations.extend([
-                        FadeIn(circles[iy][ix], scale=0),
-                        FadeIn(question_marks[iy][ix], scale=0),
-                    ])
-        self.play(
-            *animations,
-            run_time=0.6
-        )
-        self.pause("Make all circles appear")
-
         camera_shift_2 = RIGHT * 2
 
         system_group = Group(system_container, *equations_tex)
-        for row in equations_circles:
+        for row in equations_cells:
             system_group.add(*row)
         for obj in system_group:
             obj.generate_target()
-            obj.target.shift(-circles[fy][fx + 1].get_center()).scale(camera_zoom_1, about_point=ORIGIN).shift(camera_shift_2)
+            obj.target.shift(-cells[fy][fx + 1].get_center()).scale(camera_zoom_1, about_point=ORIGIN).shift(camera_shift_2)
             if obj == system_container:
                 obj.target.set_stroke(width = obj.get_stroke_width() * camera_zoom_1)
             else:
                 obj.target.set_stroke(opacity=0)
-        equation_circle_orange.target.set_fill(C_LIGHT_GRAY)
+        equation_cell_orange.target.set_fill(C_LIGHT_GRAY)
+        animations = []
+        for iy in range(n):
+            for ix in range(n):
+                if abs(fx - ix) + abs(fy - iy) > 3:
+                    animations.extend([
+                        FadeIn(cells[iy][ix], scale=0),
+                        FadeIn(question_marks[iy][ix], scale=0),
+                    ])
         self.play(
-            *[FadeOut(obj) for obj in circle_outlines],
-            self.camera.frame.animate.shift(-circles[fy][fx + 1].get_center()).scale(camera_zoom_1).shift(camera_shift_2),
+            *[FadeOut(obj) for obj in cell_outlines],
+            self.camera.frame.animate.shift(-cells[fy][fx + 1].get_center()).scale(camera_zoom_1).shift(camera_shift_2),
             *[MoveToTarget(obj) for obj in system_group],
             run_time=0.6
         )
-        self.pause("Put camera back")
+        self.play(
+            *animations,
+            FadeOut(cells_boundary[2][fy]),
+            run_time=0.6
+        )
+        self.pause("Put camera back, make all cells appear")
 
         self.play(
             system_group.animate.shift(DOWN * 0.8),
@@ -609,11 +613,155 @@ class MainScene(MovingCameraScene):
         )
         matrix_equation_tex = Tex("$A\\mathbf{x} = \\mathbf{b}$", color=C_BLACK).scale(1.2)
         matrix_equation_tex.next_to(system_group, UP)
+        system_group.add(matrix_equation_tex)
         self.play(
             Write(matrix_equation_tex),
             run_time=0.4
         )
         self.pause("Show matrix equation")
+
+        self.play(
+            *[FadeOut(obj, scale=0) for obj in question_marks_flat],
+            run_time=0.6
+        )
+        self.pause("Initialize all at zero")
+
+        camera_zoom_3 = 6
+        camera_shift_3 = cells[-1][0].get_center()
+        self.play(
+            self.camera.frame.animate.shift(-camera_shift_2).scale(1 / camera_zoom_3).shift(camera_shift_3),
+            FadeIn(cells_boundary[1][0]),
+            FadeIn(cells_boundary[2][-1]),
+            run_time=1.6
+        )
+        self.pause("Zoom into top left")
+        self.remove(system_group)
+
+        states = [
+            np.zeros((n + 2, n + 2), dtype=float)
+        ]
+        iterations = 100
+        iterations_to_show = [1, 2, 5, 20, 100]
+        for obj in cells_cold_flat + cells_hot_flat:
+            obj.set_opacity(0)
+            self.add(obj)
+        for i in range(n):
+            states[0][-1][i] = 0.0
+            states[0][n][i] = 1.0
+            states[0][i][-1] = 1.0
+            states[0][i][n] = -1.0
+        for it in range(iterations):
+            state = states[-1].copy()
+            for iy in range(n):
+                for ix in range(n):
+                    state[iy][ix] = 0.25 * sum(state[iy - (d == 0) + (d == 1)][ix - (d == 2) + (d == 3)] for d in range(4))
+            states.append(state)
+
+        amount = 6
+        for idx in range(amount):
+            fx, fy = idx, n - 1
+
+            animations = []
+            to_move = []
+            to_keep_in_front = []
+            for d in range(4):
+                nx = fx - (d == 0) + (d == 1)
+                ny = fy - (d == 2) + (d == 3)
+
+                objs = []
+                if ny >= n:
+                    objs.append(cells_boundary[1][nx])
+                elif nx < 0:
+                    objs.append(cells_boundary[2][ny])
+                else:
+                    objs.append(cells[ny][nx])
+                    objs.append(cells_hot[ny][nx])
+                for obj in objs:
+                    to_keep_in_front.append(obj)
+                    obj_moving = obj.copy()
+                    obj_moving.set_stroke(opacity=0)
+                    obj_moving.generate_target()
+                    obj_moving.target.move_to(cells[fy][fx])
+                    obj_moving.target.set_opacity(0)
+                    to_move.append(obj_moving)
+
+            self.add_foreground_mobjects(*to_keep_in_front)
+            self.play(
+                *[MoveToTarget(obj) for obj in to_move],
+                cells_hot[fy][fx].animate.set_opacity(states[1][fy][fx]),
+                cells_cold[fy][fx].animate.set_opacity(-states[1][fy][fx]),
+                run_time=0.8 if idx < 2 else 0.6
+            )
+            self.remove_foreground_mobjects(*to_keep_in_front)
+            self.remove(*to_move)
+            if idx < 2:
+                self.pause(f"Perform first GS at cell {idx}")
+
+            if idx == amount - 1:
+                continue
+
+            self.play(
+                *[FadeOut(cells_boundary[2][-1])] * (idx == 0),
+                FadeOut(cells_boundary[1][idx]),
+                FadeIn(cells_boundary[1][idx + 1]),
+                self.camera.frame.animate.shift(RIGHT * spacing),
+                run_time=0.8 if idx < 2 else 0.6
+            )
+            if idx < 1:
+                self.pause(f"Go to cell {idx}")
+        self.pause(f"Do {amount} GS calculations")
+
+        indices = []
+        for iy in range(n - 1, -1, -1):
+            for ix in range(n):
+                indices.append((ix, iy))
+        indices = indices[amount:]
+        first_gs_animations = []
+        for jx, jy in indices:
+            first_gs_animations.append(cells_hot[jy][jx].animate.set_opacity(states[1][jy][jx]))
+            first_gs_animations.append(cells_cold[jy][jx].animate.set_opacity(-states[1][jy][jx]))
+        first_gs_animation = AnimationGroup(
+            *first_gs_animations,
+            lag_ratio=0.01
+        )
+
+        camera_shift_4 = UP * 0.12
+        self.play(
+            first_gs_animation,
+            self.camera.frame.animate.shift((amount - 1) * LEFT * spacing).shift(-camera_shift_3).scale(camera_zoom_3).shift(camera_shift_4),
+            FadeOut(cells_boundary[1][amount - 1]),
+            run_time=1.6
+        )
+        self.pause("Put camera back again")
+
+        iteration_counter_text = None
+        for it in iterations_to_show:
+            iteration_counter_text_new = MathTex(f"{it}", "\\text{ iteration}", "\\text{s}", color=C_DARK_GRAY)
+            if it == 1:
+                iteration_counter_text_new[-1].set_color(C_WHITE)
+            iteration_counter_text_new.scale(0.8).next_to(walls[3], UP).shift(DOWN * 0.04)
+            text_animations = []
+            if iteration_counter_text is None:
+                text_animations.append(FadeIn(iteration_counter_text_new, scale=0.8))
+            else:
+                text_animations.append(TransformMatchingTex(iteration_counter_text, iteration_counter_text_new))
+
+            color_animations = ([
+                cells_hot[jy][jx].animate.set_opacity(states[it][jy][jx])
+                for jy in range(n) for jx in range(n)
+            ] + [
+                cells_cold[jy][jx].animate.set_opacity(-states[it][jy][jx])
+                for jy in range(n) for jx in range(n)
+            ]) * (not DEBUG)
+
+            self.play(
+                *text_animations,
+                *color_animations,
+                run_time=0.4
+            )
+            self.pause(f"Show state {it}")
+
+            iteration_counter_text = iteration_counter_text_new
 
         self.clear(fade=0.6)
 
@@ -1275,7 +1423,7 @@ class MainScene(MovingCameraScene):
         prolongation_animations_per_vertex = [[] for _ in range(len(vertices_fine))]
         for vf_idx in range(len(vertices_fine)):
             lines = [
-                Line(Vf[vf_idx], Vc[idx]).set_sheen_direction(Vc[idx] - Vf[vf_idx]).set_stroke([C_BLUE, C_BLUE] + 2 * [vertices_coarse[idx].get_fill_color()], width=6, opacity=0.6) \
+                Line(Vf[vf_idx], Vc[idx]).set_sheen_direction(Vc[idx] - Vf[vf_idx]).set_stroke([C_BLUE, C_BLUE] + 2 * [vertices_coarse[idx].get_fill_color()], width=6, opacity=0.5) \
                     .set_z_index(35)
                 for idx in prolongation_elements[vf_idx]
             ]
@@ -1377,11 +1525,11 @@ class MainScene(MovingCameraScene):
     ###################################
 
     def animate(self):
-        # self.animate_slide_intro_outro()
+        self.animate_slide_intro_outro()
 
         self.animate_slide_dirichlet_demonstration()
 
-        # self.animate_slide_multigrid_diagram()
+        self.animate_slide_multigrid_diagram()
 
         self.animate_slide_gravo_demonstration()
 
@@ -1392,6 +1540,6 @@ if __name__ == "__main__":
         from ba_present import present
         present(
             DEBUG_FRAMERATE if DEBUG else DEFAULT_FRAMERATE,
-            not DEBUG or True,
+            False,
             True
         )

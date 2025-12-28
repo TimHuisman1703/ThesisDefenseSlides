@@ -2,9 +2,9 @@ import cv2
 import screeninfo
 import time
 
-from utils import *
+from x_utils import *
 
-DEBUG = True
+DEBUG = False
 
 WINDOW_NAME = "Thesis Defense"
 FULLSCREEN = True
@@ -84,6 +84,6 @@ def present(framerate, fullscreen, mouse_controlled):
 if __name__ == "__main__":
     present(
         DEBUG_FRAMERATE if DEBUG else DEFAULT_FRAMERATE,
-        not DEBUG or True,
+        not DEBUG,
         True
     )

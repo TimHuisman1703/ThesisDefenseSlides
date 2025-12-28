@@ -9,7 +9,6 @@ DEFAULT_SIZE = (1920, 1080)
 DEBUG_SIZE = (480, 270)
 
 PATH = os.path.realpath(os.path.dirname(__file__))
-RENDER_PATH = f"{PATH}\\media\\images\\a_render"
 OUTPUT_PATH = f"{PATH}\\output"
 
 PAUSE_MARKER_COLOR = [86, 52, 18]

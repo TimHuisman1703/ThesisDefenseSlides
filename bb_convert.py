@@ -5,7 +5,7 @@ from PIL import Image
 from pptx import Presentation
 from pptx.util import Inches
 
-from utils import *
+from x_utils import *
 
 THUMBNAIL_FILENAME = f"{PATH}/thumbnail.png"
 VIDEO_FILENAME = f"{PATH}/video.mov"
@@ -34,7 +34,7 @@ for idx, frames in enumerate(videos):
     timing = [el for el in tree.iterdescendants() if etree.QName(el).localname == "cond"][0]
     timing.set("delay", "0")
 
-    print(f"\033[30;1mProcessed video #{idx + 1}\033[0m")
+    print(f"\033[30;1mProcessed video #{idx + 1} ({len(frames)} frames)\033[0m")
 
 prs.save(f"{PATH}/output.pptx")
 os.unlink(VIDEO_FILENAME)
