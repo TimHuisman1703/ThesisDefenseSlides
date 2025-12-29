@@ -8,7 +8,7 @@ import time
 
 from x_utils import *
 
-DEBUG = False
+DEBUG = True
 FROM = 0
 TO = 10000
 
@@ -44,9 +44,13 @@ def render_slides():
 
     print("\033[34;1mCopying frames...\033[0m")
 
+    filenames = os.listdir(RENDER_PATH)
     for filename in os.listdir(RENDER_PATH):
         nr = int("".join(c for c in filename if c.isdigit()))
+        if nr % 100 == 0:
+            print(f"\033[30;1m  {nr}/{len(filenames)}")
         shutil.copyfile(f"{RENDER_PATH}/{filename}", f"{OUTPUT_PATH}/{nr:06}.png")
+    print(f"\033[30;1m  {len(filenames)}/{len(filenames)}")
 
     duration = int(time.time() - start_time)
     print(f"\033[32;1mFinished in {duration // 60}m {duration % 60:02}s!\033[0m")
@@ -152,7 +156,7 @@ class PresentationScene(MovingCameraScene):
 
     def create_arrow(self, arrow, opacity=1):
         start, end = arrow.get_start_and_end()
-        opacity = arrow.get_opacity()
+        opacity = arrow.get_stroke_opacity()
         arrow.set_opacity(0).put_start_and_end_on(start, start + 0.00001 * (end - start))
         return arrow.animate.set_opacity(opacity).put_start_and_end_on(start, end)
 
@@ -187,7 +191,6 @@ class PresentationScene(MovingCameraScene):
 
         n = 16
         size = 6
-        thickness = 0.1
 
         def val_to_deg(v):
             return 15 + 15 * v
@@ -227,6 +230,7 @@ class PresentationScene(MovingCameraScene):
                 temperatures[iy][ix] = values[(iy + 1) * (n + 2) + (ix + 1)]
 
         spacing = size / n
+        margin = 0.02
 
         walls = [None] * 4
         a, b = spacing * n / 2 + 0.01, spacing * (n / 2 + 1) - 0.01
@@ -259,15 +263,15 @@ class PresentationScene(MovingCameraScene):
 
                 temperature = temperatures[iy][ix]
 
-                cell = Square(0.96 * spacing).round_corners(0.05).set_stroke(width=0).set_fill(C_LIGHT_GRAY, opacity=1)
+                cell = Square(spacing - margin).round_corners(0.05).set_stroke(width=0).set_fill(C_LIGHT_GRAY, opacity=1)
                 cell.move_to((x, y, 0))
                 cells[iy][ix] = cell
 
-                cell_hot = Square(0.96 * spacing).round_corners(0.05).set_stroke(width=0).set_fill(C_ORANGE, opacity=1).set_opacity(temperature)
+                cell_hot = Square(spacing - margin).round_corners(0.05).set_stroke(width=0).set_fill(C_ORANGE, opacity=1).set_opacity(temperature)
                 cell_hot.move_to((x, y, 0))
                 cells_hot[iy][ix] = cell_hot
 
-                cell_cold = Square(0.96 * spacing).round_corners(0.05).set_stroke(width=0).set_fill(C_BLUE, opacity=1).set_opacity(-temperature)
+                cell_cold = Square(spacing - margin).round_corners(0.05).set_stroke(width=0).set_fill(C_BLUE, opacity=1).set_opacity(-temperature)
                 cell_cold.move_to((x, y, 0))
                 cells_cold[iy][ix] = cell_cold
 
@@ -641,7 +645,7 @@ class PresentationScene(MovingCameraScene):
             np.zeros((n + 2, n + 2), dtype=float)
         ]
         iterations = 100
-        iterations_to_show = [1, 2, 5, 20, 100]
+        iterations_to_show = [1, 2, 5, 20, 100] # TODO: Maybe show everything in between, without animation?
         for obj in cells_cold_flat + cells_hot_flat:
             obj.set_opacity(0)
             self.add(obj)
@@ -752,7 +756,7 @@ class PresentationScene(MovingCameraScene):
             ] + [
                 cells_cold[jy][jx].animate.set_opacity(-states[it][jy][jx])
                 for jy in range(n) for jx in range(n)
-            ]) * (not DEBUG)
+            ])
 
             self.play(
                 *text_animations,
@@ -763,10 +767,591 @@ class PresentationScene(MovingCameraScene):
 
             iteration_counter_text = iteration_counter_text_new
 
+        walls_big = [obj.copy().set_fill(opacity=0) for obj in walls]
+
+        cells_big = [[None] * (n // 2) for _ in range(n // 2)]
+        cells_big_flat = []
+        for iy in range(n // 2):
+            for ix in range(n // 2):
+                x = size * (2 * (ix + 0.5) / n - 0.5)
+                y = size * (2 * (iy + 0.5) / n - 0.5)
+
+                cell_big = Square(2 * spacing - margin).round_corners(0.05).set_stroke(width=0).set_fill(C_LIGHT_GRAY, opacity=0)
+                cell_big.move_to((x, y, 0))
+                cells[iy][ix] = cell_big
+
+                cells_big[iy][ix] = cell_big
+                cells_big_flat.append(cell_big)
+
+        camera_shift_5 = RIGHT * 4.4
+        camera_zoom_5 = 0.8
+        self.play(
+            *[obj.animate.set_fill(opacity=1).shift(2 * camera_shift_5) for obj in cells_big_flat],
+            *[obj.animate.set_fill(opacity=1).shift(2 * camera_shift_5) for obj in walls_big],
+            self.camera.frame.animate.scale(1 / camera_zoom_5).shift(camera_shift_5),
+            run_time=1.2
+        )
+        self.pause("Show bigger grid")
+
+        states_big = [
+            np.zeros((n // 2 + 2, n // 2 + 2), dtype=float)
+        ]
+        iterations_big = 8
+        for i in range(n // 2):
+            states_big[0][-1][i] = 0.0
+            states_big[0][n // 2][i] = 1.0
+            states_big[0][i][-1] = 1.0
+            states_big[0][i][n // 2] = -1.0
+        for it in range(iterations_big):
+            state_big = states_big[-1].copy()
+            for iy in range(n // 2):
+                for ix in range(n // 2):
+                    state_big[iy][ix] = 0.25 * sum(state_big[iy - (d == 0) + (d == 1)][ix - (d == 2) + (d == 3)] for d in range(4))
+            states_big.append(state_big)
+
+        cells_hot_big = [[None] * (n // 2) for _ in range(n // 2)]
+        cells_hot_big_flat = []
+        cells_cold_big = [[None] * (n // 2) for _ in range(n // 2)]
+        cells_cold_big_flat = []
+        for iy in range(n // 2):
+            for ix in range(n // 2):
+                cell_hot = cells_big[iy][ix].copy().set_fill(C_ORANGE, opacity=0)
+                cell_hot.set_z_index(cell_hot.get_z_index() + 1)
+                cells_hot_big[iy][ix] = cell_hot
+                cells_hot_big_flat.append(cell_hot)
+
+                cell_cold = cells_big[iy][ix].copy().set_fill(C_BLUE, opacity=0)
+                cell_cold.set_z_index(cell_cold.get_z_index() + 1)
+                cells_cold_big[iy][ix] = cell_cold
+                cells_cold_big_flat.append(cell_cold)
+        self.add(*cells_hot_big_flat, *cells_cold_big_flat)
+
+        iteration_counter_big_text = None
+        indices = sorted(range(len(cells_big_flat)), key=lambda x: (x % (n // 2)) + -(x // (n // 2)))
+        for it in range(1, iterations_big + 1):
+            for idx in indices:
+                ix, iy = idx % (n // 2), idx // (n // 2)
+                cells_hot_big_flat[idx].set_fill(opacity=states_big[it][iy][ix])
+                cells_cold_big_flat[idx].set_fill(opacity=-states_big[it][iy][ix])
+
+            if iteration_counter_big_text is not None:
+                self.remove(iteration_counter_big_text)
+            iteration_counter_big_text_new = MathTex(f"{it}", "\\text{ iteration}", "\\text{s}", color=C_DARK_GRAY)
+            if it == 1:
+                iteration_counter_big_text_new[-1].set_color(C_WHITE)
+            iteration_counter_big_text_new.scale(0.8).next_to(walls_big[3], UP).shift(DOWN * 0.04)
+            iteration_counter_big_text = iteration_counter_big_text_new
+            self.add(iteration_counter_big_text)
+
+            self.hold(0.2)
+        self.pause(f"Relax the big grid for {iterations_big} iterations")
+
+        plus_rectangle_1 = Rectangle(C_DARK_GRAY, 1.2, 0.2).set_stroke(opacity=0).set_fill(opacity=1).shift(camera_shift_5)
+        plus_rectangle_2 = Rectangle(C_DARK_GRAY, 0.2, 1.2).set_stroke(opacity=0).set_fill(opacity=1).move_to(plus_rectangle_1)
+        plus_question_tex = MathTex("\\textbf{?}", color=C_DARK_GRAY).scale(2).next_to(plus_rectangle_1, UP)
+        self.play(
+            FadeIn(plus_rectangle_1, scale=0.5),
+            FadeIn(plus_rectangle_2, scale=0.5),
+            FadeIn(plus_question_tex, scale=0.5, target_position=camera_shift_5),
+            run_time=0.6
+        )
+        self.pause("Make plus with question mark appear")
+
+        white_fade = Rectangle(C_WHITE, 100, 100).set_fill(opacity=0.75)
+        white_fade.set_z_index(50)
+        multigrid_text = Text("\"Multigrid\"?", color=C_BLACK, t2c={"Multi": C_RED}).scale(2.4).move_to(camera_shift_5)
+        multigrid_text.set_z_index(52)
+        multigrid_text_background = multigrid_text.copy().set_stroke(C_WHITE, width=8)
+        multigrid_text_background.set_z_index(51)
+        self.play(
+            FadeIn(white_fade),
+            FadeIn(multigrid_text, shift=UP * 0.5),
+            FadeIn(multigrid_text_background, shift=UP * 0.5),
+            run_time=0.8
+        )
+        self.pause("Show \"Multigrid\" text")
+
         self.clear(fade=0.6)
 
     def animate_slide_multigrid_diagram(self):
-        pass
+        icons = []
+
+        size = 0.8
+        margin = 0.04
+        gap = 0.16
+
+        spacing_vert = 2.4
+
+        n = 4
+        for m in [n, n // 2, n // 4]:
+            icon = Group()
+            for iy in range(m):
+                for ix in range(m):
+                    cell = Square(1 - margin).round_corners(0.1).set_fill(C_GRAY, opacity=1).set_stroke(opacity=0)
+                    cell.shift(np.array([ix, iy, 0]))
+                    icon.add(cell)
+            icon.scale(size / m)
+            icons.append(icon)
+
+        for i in range(3):
+            icons[i].move_to(np.array([-5.6, spacing_vert * (1 - i), 0.0]))
+
+        timeline_0 = Line(LEFT * 4.8, RIGHT * 8.4).set_stroke(C_LIGHT_GRAY, width=8).set_cap_style(CapStyleType.ROUND).set_y(icons[0].get_y())
+
+        self.play(
+            FadeIn(icons[0], scale=1.5),
+            run_time=0.6
+        )
+        self.play(
+            Create(timeline_0),
+            rate_func=rush_into,
+            run_time=0.8
+        )
+        self.pause("Draw initial timeline")
+
+        gs_icon_square = Square(0.44).set_stroke(C_GRAY, width=4).set_fill(lerp(C_WHITE, C_ORANGE, 0.5), opacity=1).round_corners(0.1)
+        gs_icon_letters = Text("GS", color=C_DARK_GRAY).scale(0.4)
+        gs_icon_template = Group(gs_icon_square, gs_icon_letters)
+        gs_icon_template.set_z_index(20)
+
+        solve_icon_square = Rectangle(C_GRAY, 0.44, 0.84).set_stroke(C_GRAY, width=4).set_fill(lerp(C_WHITE, C_GREEN, 0.5), opacity=1).round_corners(0.1)
+        solve_icon_letters = Text("Solve", color=C_DARK_GRAY).scale(0.4)
+        solve_icon_template = Group(solve_icon_square, solve_icon_letters)
+        solve_icon_template.set_z_index(20)
+
+        gs_number = 21
+        gs_icons = []
+        for i in range(gs_number):
+            gs_icon = gs_icon_template.copy()
+            gs_icon.shift(UP * spacing_vert + RIGHT * (i * (gs_icon.get_width() + gap) - 4.4))
+            gs_icons.append(gs_icon)
+
+        self.play(
+            AnimationGroup(
+                *[FadeIn(obj, scale=3.0) for obj in gs_icons],
+                lag_ratio=0.05
+            ),
+            run_time=0.8
+        )
+        self.pause("Show GS's")
+
+        self.play(
+            *[obj[0].animate.set_stroke(C_RED).set_fill(lerp(C_WHITE, C_RED, 0.5)).scale(0.8) for obj in gs_icons[2:]],
+            *[obj[1].animate.set_fill(C_RED).scale(0.8) for obj in gs_icons[2:]],
+            run_time=0.4
+        )
+        self.hold(0.8)
+        self.play(
+            *[FadeOut(obj) for obj in gs_icons[2:]],
+            run_time=0.6
+        )
+        self.pause("Remove unnecessary GS's")
+
+        gap_vert = 0.24
+        res_length = 0.4
+        start = gs_icons[1].get_right()[0] + gap
+        res_line_0_a = Line(
+            np.array([start, spacing_vert - gap_vert, 0.0]),
+            np.array([start + res_length, spacing_vert - gap_vert, 0.0]),
+        ).set_stroke(C_LIGHT_GRAY, width=8).set_cap_style(CapStyleType.ROUND)
+        self.play(
+            Create(res_line_0_a),
+            run_time=0.4
+        )
+        self.pause("Introduce residual equation 0")
+
+        arrow_x_travel = 0.6
+        restrict_01_arrow = Arrow(stroke_width=8).put_start_and_end_on(
+            res_line_0_a.get_end(),
+            np.array([res_line_0_a.get_end()[0] + arrow_x_travel, 0.0, 0.0])
+        ).set_color(C_PURPLE).set_cap_style(CapStyleType.ROUND)
+        restrict_01_arrow.set_z_index(11)
+
+        solve_1 = solve_icon_template.copy()
+        solve_1.move_to(restrict_01_arrow.get_end() + RIGHT * (solve_1.get_width() / 2 + gap))
+        timeline_1 = timeline_0.copy()
+        timeline_1.put_start_and_end_on(
+            restrict_01_arrow.get_end(),
+            restrict_01_arrow.get_end() + RIGHT * (2 * gap + solve_1.get_width())
+        )
+        angle = np.arctan2(*(restrict_01_arrow.get_end() - restrict_01_arrow.get_start())[:2][::-1])
+        restrict_01_text = Text("Restriction", color=C_PURPLE).scale(0.5).rotate(angle)
+        restrict_01_text.move_to(restrict_01_arrow).shift(LEFT * 0.36).shift((restrict_01_arrow.get_end() - restrict_01_arrow.get_start()) * -0.02)
+
+        self.play(
+            FadeIn(icons[1], scale=1.5),
+            run_time=0.6,
+        )
+        self.pause("Introduce mid domain")
+
+        self.play(
+            self.create_arrow(restrict_01_arrow),
+            run_time=0.6,
+        )
+        self.play(
+            Create(timeline_1),
+            run_time=0.4,
+            rate_func=rush_from
+        )
+        self.pause("Draw first restriction")
+
+        self.play(
+            Write(restrict_01_text),
+            run_time=0.4
+        )
+        self.pause("Draw restriction text")
+
+        self.play(
+            FadeIn(solve_1, scale=3.0),
+            run_time=0.6
+        )
+        self.pause("Show solve 1")
+
+        start = solve_1.get_right()[0] + gap
+        res_line_0_b = res_line_0_a.copy()
+        res_line_0_b.shift(RIGHT * (res_length + arrow_x_travel * 2 + timeline_1.get_width()))
+        prolong_10_arrow = restrict_01_arrow.copy().put_start_and_end_on(
+            timeline_1.get_end(),
+            res_line_0_b.get_start()
+        )
+        prolong_10_text = Text("Prolongation", color=C_PURPLE).scale(0.5).rotate(-angle)
+        prolong_10_text.move_to(prolong_10_arrow).shift(RIGHT * 0.28).shift((prolong_10_arrow.get_end() - prolong_10_arrow.get_start()) * -0.1)
+        self.play(
+            self.create_arrow(prolong_10_arrow),
+            run_time=0.6
+        )
+        self.play(
+            Create(res_line_0_b),
+            run_time=0.3,
+            rate_func=rush_from
+        )
+        self.pause("Draw first prolongation")
+
+        self.play(
+            Write(prolong_10_text),
+            run_time=0.4
+        )
+        self.pause("Draw prolongation text")
+
+        gs_icons = gs_icons[:2] + [gs_icon_template.copy() for _ in range(2)]
+        gs_icons[2].move_to(res_line_0_b.get_end() + RIGHT * (gs_icons[2].get_width() / 2 + gap)).set_y(spacing_vert)
+        gs_icons[3].move_to(gs_icons[2].get_center() + RIGHT * (gs_icons[2].get_width() + gap))
+        self.play(
+            AnimationGroup(
+                *[FadeIn(obj, scale=3.0) for obj in gs_icons[2:]],
+                lag_ratio=0.05
+            ),
+            run_time=0.8
+        )
+        self.pause("Show post-GS's")
+
+        self.play(
+            solve_1.animate.scale(1.6),
+            run_time=0.3
+        )
+        self.hold(0.8)
+        self.play(
+            solve_1.animate.scale(1 / 1.6),
+            run_time=0.3
+        )
+        self.pause("Highlight mid solve")
+
+        self.play(
+            FadeIn(icons[2], scale=1.5),
+            run_time=0.6
+        )
+        self.pause("Introduce coarsest domain")
+
+        to_recurse = [
+            *gs_icons,
+            res_line_0_a,
+            res_line_0_b,
+            restrict_01_arrow,
+            restrict_01_text,
+            prolong_10_arrow,
+            prolong_10_text,
+            timeline_1,
+            solve_1
+        ]
+        to_move_right = [
+            prolong_10_arrow,
+            prolong_10_text,
+            res_line_0_b,
+            gs_icons[2],
+            gs_icons[3]
+        ]
+        offset_right_down = solve_1.get_left() - gs_icons[0].get_left()
+        for idx, obj in enumerate(to_recurse):
+            obj = obj.copy()
+            to_recurse[idx] = obj
+            obj.shift(offset_right_down)
+        offset_right = RIGHT * (gs_icons[3].get_left()[0] + gs_icons[3].get_width() - gs_icons[0].get_left()[0] - solve_1.get_width())
+        self.play(
+            *[obj.animate.shift(offset_right) for obj in to_move_right],
+            timeline_1.animate.put_start_and_end_on(
+                timeline_1.get_start(),
+                timeline_1.get_end() + RIGHT * offset_right
+            ),
+            solve_1.animate.shift(offset_right / 2),
+            run_time=0.8
+        )
+        to_recurse_group = Group(*to_recurse)
+        self.play(
+            solve_1[0].animate
+                .set_fill(opacity=0)
+                .set_stroke(opacity=0)
+                .move_to(to_recurse_group)
+                .set_width(to_recurse_group.get_width() + 0.2)
+                .set_height(to_recurse_group.get_height() + 0.2),
+            solve_1[1].animate
+                .set_fill(opacity=0)
+                .move_to(to_recurse_group),
+            FadeIn(to_recurse_group, scale=0, target_position=solve_1.get_center()),
+            run_time=0.8
+        )
+        self.remove(solve_1)
+        self.pause("Recurse solve")
+
+        diff = 0.28
+        solve_2 = to_recurse[-1]
+        solve_rectangle_new = Rectangle(C_GRAY, 0.44 + diff, 0.84).set_stroke(C_GRAY, width=4).set_fill(lerp(C_WHITE, C_GREEN, 0.5), opacity=1).round_corners(0.1)
+        solve_rectangle_new.move_to(solve_2)
+        direct_text = Text("Direct", color=C_DARK_GRAY).scale(0.4).set_fill(opacity=0)
+        direct_text.move_to(solve_2)
+        direct_text.set_z_index(solve_2[1].get_z_index())
+        self.play(
+            Transform(solve_2[0], solve_rectangle_new, replace_mobject_with_target_in_scene=True),
+            solve_2[1].animate.shift(DOWN * (diff / 2)),
+            direct_text.animate.shift(UP * (diff / 2)).set_fill(opacity=1),
+            run_time=0.6
+        )
+        self.pause("Show direct solve")
+
+        highlight_domain_1 = Square(1.2).set_stroke(C_RED, width=12).round_corners(0.1)
+        highlight_domain_1.set_z_index(25)
+        highlight_domain_1.move_to(icons[1])
+        highlight_domain_2 = highlight_domain_1.copy()
+        highlight_domain_2.move_to(icons[2])
+        self.play(
+            Create(highlight_domain_1),
+            Create(highlight_domain_2),
+            run_time=0.6
+        )
+        self.pause("Highlight missing domains")
+
+        highlight_restrict_01 = Rectangle(C_RED, 2.56, 1.28).set_stroke(C_RED, width=12).round_corners(0.1)
+        highlight_restrict_01.set_z_index(25)
+        highlight_restrict_01.move_to(Group(restrict_01_arrow, restrict_01_text))
+        highlight_restrict_12 = highlight_restrict_01.copy()
+        highlight_restrict_12.shift(offset_right_down)
+        highlight_prolong_10 = highlight_restrict_01.copy()
+        highlight_prolong_10.move_to(Group(prolong_10_arrow, prolong_10_text))
+        highlight_prolong_21 = highlight_prolong_10.copy()
+        highlight_prolong_21.shift(np.array([-offset_right_down[0], offset_right_down[1], 0.0]))
+        self.play(
+            Create(highlight_restrict_01),
+            Create(highlight_restrict_12),
+            Create(highlight_prolong_21),
+            Create(highlight_prolong_10),
+            run_time=0.6
+        )
+        self.pause("Highlight missing transfer operators")
+
+        self.clear(fade=0.6)
+
+    def animate_slide_prolongation_demonstration(self):
+        n = 8
+        size = 2.4
+        margin = 0.04
+
+        dims = [n, n // 2, n]
+        states = [np.zeros((dims[j], dims[j]), dtype=float) for j in range(3)]
+        np.random.seed(0)
+        for iy in range(n):
+            for ix in range(n):
+                x, y = (ix + 0.5) / n, (iy + 0.5) / n
+                states[0][iy][ix] = x ** 2 - y ** 2 + np.random.normal(0.0, 0.5)
+        for iy in range(n // 2):
+            for ix in range(n // 2):
+                states[1][iy][ix] = sum(
+                    states[0][jy][jx]
+                    for jy in range(2 * iy, 2 * (iy + 1))
+                    for jx in range(2 * ix, 2 * (ix + 1))
+                ) / 4
+        for iy in range(n):
+            for ix in range(n):
+                states[2][iy][ix] = states[1][iy // 2][ix // 2]
+
+        cells = [[[None] * d for _ in range(d)] for d in dims]
+        cells_hot = [[[None] * d for _ in range(d)] for d in dims]
+        cells_cold = [[[None] * d for _ in range(d)] for d in dims]
+        for i in range(3):
+            spacing = size / dims[i]
+
+            for iy in range(dims[i]):
+                for ix in range(dims[i]):    
+                    x = size * ((ix + 0.5) / dims[i] - 0.5)
+                    y = size * ((iy + 0.5) / dims[i] - 0.5)
+
+                    temperature = states[i][iy][ix]
+
+                    cell = Square((1 - margin) * spacing).round_corners(0.05).set_stroke(width=0).set_fill(C_LIGHT_GRAY, opacity=1)
+                    cell.move_to((x, y, 0))
+                    cells[i][iy][ix] = cell
+
+                    cell_hot = Square((1 - margin) * spacing).round_corners(0.05).set_stroke(width=0).set_fill(C_ORANGE, opacity=1).set_opacity(temperature)
+                    cell_hot.move_to((x, y, 0))
+                    cell_hot.set_z_index(1)
+                    cells_hot[i][iy][ix] = cell_hot
+
+                    cell_cold = Square((1 - margin) * spacing).round_corners(0.05).set_stroke(width=0).set_fill(C_BLUE, opacity=1).set_opacity(-temperature)
+                    cell_cold.move_to((x, y, 0))
+                    cell_cold.set_z_index(1)
+                    cells_cold[i][iy][ix] = cell_cold
+
+        px, py = 2.0, 2.2
+        centers = [
+            np.array([-px, py, 0.0]),
+            np.array([0.0, -py, 0.0]),
+            np.array([px, py, 0.0]),
+        ]
+
+        cells_flat = [[obj for row in c for obj in row if obj] for c in cells]
+        cells_hot_flat = [[obj for row in c for obj in row if obj] for c in cells_hot]
+        cells_cold_flat = [[obj for row in c for obj in row if obj] for c in cells_cold]
+        for i in range(3):
+            Group(*cells_flat[i], *cells_hot_flat[i], *cells_cold_flat[i]).move_to(centers[i])
+
+        self.play(
+            *[FadeIn(obj) for obj in cells_flat[0]],
+            run_time=0.4
+        )
+        self.pause("Make 0th grid appear")
+
+        cells_to_move = [[obj.copy() for obj in row] for row in cells[0]]
+        cells_to_move_flat = []
+        to_remove = []
+        animations = []
+        for iy in range(n):
+            for ix in range(n):
+                cell_to_move = cells_to_move[iy][ix]
+                cell_big = cells[1][iy // 2][ix // 2].copy()
+
+                cells_to_move_flat.append(cell_to_move)
+                to_remove.append(cell_big)
+                animations.append(
+                    Transform(cell_to_move, cell_big, replace_mobject_with_target_in_scene=True)
+                )
+        self.play(
+            Group(*cells_to_move_flat).animate.move_to(centers[1]),
+            run_time=0.6
+        )
+        self.play(
+            *animations,
+            run_time=0.4
+        )
+        self.remove(*to_remove)
+        self.add(*cells_flat[1])
+        self.pause("Make 1st grid appear")
+
+        self.play(
+            *[FadeIn(obj) for obj in cells_hot_flat[0]],
+            *[FadeIn(obj) for obj in cells_cold_flat[0]],
+            run_time=0.4
+        )
+        self.pause("Fill in values for 0th grid")
+
+        start = np.array([-px, py, 0.0])
+        end = np.array([0.0, -py, 0.0])
+        start, end = start + (end - start) * 0.3, end + (start - end) * 0.3
+        restrict_arrow = Arrow(stroke_width=8).put_start_and_end_on(start, end).set_color(C_PURPLE).set_cap_style(CapStyleType.ROUND)
+        restrict_arrow.set_z_index(11)
+
+        angle = np.arctan2(*(restrict_arrow.get_end() - restrict_arrow.get_start())[:2][::-1])
+        restrict_text = Text("Restriction", color=C_PURPLE).scale(0.4).rotate(angle)
+        restrict_text.move_to(restrict_arrow).shift(LEFT * 0.36).shift((restrict_arrow.get_end() - restrict_arrow.get_start()) * -0.02)
+        restrict_text.set_z_index(11)
+        self.play(
+            self.create_arrow(restrict_arrow),
+            FadeIn(restrict_text),
+            run_time=0.6
+        )
+        self.pause("Draw restriction arrow")
+
+        cells_hot_to_move = [[obj.copy() for obj in row] for row in cells_hot[0]]
+        cells_cold_to_move = [[obj.copy() for obj in row] for row in cells_cold[0]]
+        cells_to_move_flat = [obj.copy() for obj in cells_flat[0]]
+        cells_all_to_move_flat = cells_to_move_flat[:]
+        to_remove = []
+        animations = []
+        for iy in range(n):
+            for ix in range(n):
+                cell_hot_to_move = cells_hot_to_move[iy][ix]
+                cell_hot_big = cells_hot[1][iy // 2][ix // 2].copy()
+                cells_all_to_move_flat.append(cell_hot_to_move)
+                to_remove.append(cell_hot_big)
+                animations.append(
+                    Transform(cell_hot_to_move, cell_hot_big, replace_mobject_with_target_in_scene=True)
+                )
+                
+                cell_cold_to_move = cells_cold_to_move[iy][ix]
+                cell_cold_big = cells_cold[1][iy // 2][ix // 2].copy()
+                cells_all_to_move_flat.append(cell_cold_to_move)
+                to_remove.append(cell_cold_big)
+                animations.append(
+                    Transform(cell_cold_to_move, cell_cold_big, replace_mobject_with_target_in_scene=True)
+                )
+
+                if ix % 2 != (ix // 2) % 2 or iy % 2 != (iy // 2) % 2:
+                    cell_hot_big.set_opacity(0.0)
+                    cell_cold_big.set_opacity(0.0)
+        for obj in cells_all_to_move_flat:
+            obj.set_z_index(obj.get_z_index() + 30)
+        self.play(
+            Group(*cells_all_to_move_flat).animate.move_to(centers[1]),
+            run_time=0.6
+        )
+        self.play(
+            *[FadeOut(obj) for obj in cells_to_move_flat],
+            *animations,
+            run_time=0.4
+        )
+        self.remove(*to_remove)
+        self.add(*cells_hot_flat[1], *cells_cold_flat[1])
+        self.pause("Restrict from 0th to 1st")
+
+        prolong_arrow = restrict_arrow.copy().put_start_and_end_on(
+            np.array([-end[0], end[1], 0.0]),
+            np.array([-start[0], start[1], 0.0]),
+        )
+        prolong_text = Text("Prolongation", color=C_PURPLE).scale(0.4).rotate(-angle)
+        prolong_text.set_z_index(11)
+        prolong_text.move_to(prolong_arrow).shift(RIGHT * 0.36).shift((prolong_arrow.get_end() - prolong_arrow.get_start()) * -0.04)
+        self.play(
+            *[Transform(a.copy(), b, replace_mobject_with_target_in_scene=True) for a, b in zip(cells_flat[0], cells_flat[2])],
+            self.create_arrow(prolong_arrow),
+            FadeIn(prolong_text),
+            run_time=0.6
+        )
+        self.pause("Make 2nd grid appear")
+
+        to_move_group = Group(*[obj.copy() for obj in cells_flat[1] + cells_hot_flat[1] + cells_cold_flat[1]])
+        for obj in to_move_group:
+            obj.set_z_index(obj.get_z_index() + 30)
+        to_move_group.set_z_index(5)
+        self.play(
+            to_move_group.animate.move_to(centers[2]),
+            run_time=0.8
+        )
+        self.hold(0.2)
+        self.add(*cells_hot_flat[2], *cells_cold_flat[2])
+        self.play(
+            FadeOut(to_move_group),
+            run_time=0.6
+        )
+        self.pause("Prolongate from 1st to 2nd")
+
+        self.clear(fade=0.6)
 
     def animate_slide_gravo_demonstration(self):
         self.pause("Start gravo_demonstration")
@@ -822,7 +1407,7 @@ class PresentationScene(MovingCameraScene):
             vertices_fine.append(vertex)
         edges_fine = []
         for i in range(E.shape[0]):
-            edge = Line(V[E[i][0]], V[E[i][1]]).set_stroke(light_blue, width=8)
+            edge = Line(V[E[i][0]], V[E[i][1]]).set_stroke(light_blue, width=8).set_cap_style(CapStyleType.ROUND)
             edge.set_z_index(6)
             edge.start_index = E[i][0]
             edge.end_index = E[i][1]
@@ -866,7 +1451,7 @@ class PresentationScene(MovingCameraScene):
         self.pause("Remove triangles")
 
         lose = 64
-        edges_lose = edges_fine[-lose:]
+        edges_fine, edges_lose = edges_fine[:-lose], edges_fine[-lose:]
         self.play(
             *[obj.animate.set_stroke(light_red, width=1.6 * obj.get_stroke_width()).scale(0.6) for obj in edges_lose],
             run_time=0.4,
@@ -1084,7 +1669,7 @@ class PresentationScene(MovingCameraScene):
             clu = cluster[cur]
 
             if d:
-                edge = Line(Vf[prv], Vf[cur]).set_stroke(colors[clu], width=12)
+                edge = Line(Vf[prv], Vf[cur]).set_stroke(colors[clu], width=12).set_cap_style(CapStyleType.ROUND)
                 edge.set_z_index(15)
                 edge.cluster = clu
                 cluster_edges.append(edge)
@@ -1125,7 +1710,7 @@ class PresentationScene(MovingCameraScene):
             if pred[a] == b or pred[b] == a:
                 continue
 
-            edge = Line(Vf[a], Vf[b]).set_stroke(colors[p], width=12)
+            edge = Line(Vf[a], Vf[b]).set_stroke(colors[p], width=12).set_cap_style(CapStyleType.ROUND)
             edge.cluster = p
             edge.set_z_index(20)
             cluster_edges_new.append(edge)
@@ -1174,7 +1759,7 @@ class PresentationScene(MovingCameraScene):
             move_animations[key] = [
                 obj.animate.put_start_and_end_on(Vc[cluster[obj.start_index]], Vc[cluster[obj.end_index]]) for obj in edges
             ]
-            edge_coarse = Line(Vc[a], Vc[b]).set_stroke(C_GRAY, width=12)
+            edge_coarse = Line(Vc[a], Vc[b]).set_stroke(C_GRAY, width=12).set_cap_style(CapStyleType.ROUND)
             edge_coarse.set_z_index(20)
             edge_coarse.start_index = a
             edge_coarse.end_index = b
@@ -1423,7 +2008,7 @@ class PresentationScene(MovingCameraScene):
         prolongation_animations_per_vertex = [[] for _ in range(len(vertices_fine))]
         for vf_idx in range(len(vertices_fine)):
             lines = [
-                Line(Vf[vf_idx], Vc[idx]).set_sheen_direction(Vc[idx] - Vf[vf_idx]).set_stroke([C_BLUE, C_BLUE] + 2 * [vertices_coarse[idx].get_fill_color()], width=6, opacity=0.5) \
+                Line(Vf[vf_idx], Vc[idx]).set_sheen_direction(Vc[idx] - Vf[vf_idx]).set_stroke([C_BLUE, C_BLUE] + 2 * [vertices_coarse[idx].get_fill_color()], width=6, opacity=0.5).set_cap_style(CapStyleType.ROUND) \
                     .set_z_index(35)
                 for idx in prolongation_elements[vf_idx]
             ]
@@ -1525,13 +2110,14 @@ class PresentationScene(MovingCameraScene):
     ###################################
 
     def animate(self):
-        self.animate_slide_intro_outro()
+        # self.animate_slide_intro_outro()
 
         self.animate_slide_dirichlet_demonstration()
+        # self.animate_slide_multigrid_diagram()
+        # self.animate_slide_prolongation_demonstration()
+        # self.animate_slide_gravo_demonstration()
 
-        self.animate_slide_multigrid_diagram()
-
-        self.animate_slide_gravo_demonstration()
+        # self.animate_slide_intro_outro()
 
 if __name__ == "__main__":
     exit_code = render_slides()
@@ -1540,6 +2126,6 @@ if __name__ == "__main__":
         from ba_present import present
         present(
             DEBUG_FRAMERATE if DEBUG else DEFAULT_FRAMERATE,
-            False,
+            not DEBUG,
             True
         )

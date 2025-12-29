@@ -48,6 +48,8 @@ def read_output_videos(verbose):
         else:
             videos[-1].append(frame)
 
+    if videos[-1]:
+        print(f"\033[30;1mLoaded video #{len(videos)} ({len(videos[-1])} frame{'s' * (len(videos[-1]) != 1)})\033[0m")
     while not videos[-1]:
         videos.pop()
 
