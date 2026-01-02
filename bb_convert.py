@@ -3,6 +3,7 @@ from lxml import etree
 import os
 from PIL import Image
 from pptx import Presentation
+from pptx.opc.constants import CONTENT_TYPE as CT
 from pptx.util import Inches
 
 from x_utils import *
@@ -11,17 +12,20 @@ THUMBNAIL_FILENAME = f"{PATH}/thumbnail.png"
 VIDEO_FILENAME = f"{PATH}/video.mov"
 
 def convert():
-    videos = read_output_videos(verbose=True)
-    height, width, _ = videos[0][0].shape
+    height = width = None
 
     prs = Presentation()
     prs.slide_width = Inches(16)
     prs.slide_height = Inches(9)
 
-    pages = [Image.fromarray(cv2.cvtColor(frames[-1], cv2.COLOR_BGR2RGB)) for frames in videos]
-    pages[0].save(f"{PATH}/output.pdf", "PDF", resolution=100.0, save_all=True, append_images=pages[1:])
+    pages = []
 
-    for idx, frames in enumerate(videos):
+    for idx, frames in enumerate(read_output_videos(verbose=True)):
+        if height is None:
+            height, width, _ = frames[0].shape
+
+        pages.append(Image.fromarray(cv2.cvtColor(frames[-1], cv2.COLOR_BGR2RGB)))
+
         cv2.imwrite(THUMBNAIL_FILENAME, frames[0])
         video_writer = cv2.VideoWriter(VIDEO_FILENAME, cv2.VideoWriter_fourcc(*"mp4v"), DEFAULT_FRAMERATE, (width, height))
         for frame in frames:
@@ -35,7 +39,9 @@ def convert():
         timing = [el for el in tree.iterdescendants() if etree.QName(el).localname == "cond"][0]
         timing.set("delay", "0")
 
-        print(f"\033[30;1mProcessed video #{idx + 1} ({len(frames)} frames)\033[0m")
+        print(f"\033[30;1mProcessed video #{idx + 1}\033[0m")
+
+    pages[0].save(f"{PATH}/output.pdf", "PDF", resolution=100.0, save_all=True, append_images=pages[1:])
 
     prs.save(f"{PATH}/output.pptx")
     os.unlink(VIDEO_FILENAME)

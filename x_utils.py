@@ -17,6 +17,7 @@ C_BLACK = "#000000"
 C_DARK_GRAY = "#3F3F3F"
 C_GRAY = "#7F7F7F"
 C_LIGHT_GRAY = "#BFBFBF"
+C_LIGHT_LIGHT_GRAY = "#DFDFDF"
 C_WHITE = "#FFFFFF"
 C_RED = "#DF2F2F"
 C_ORANGE = "#EF7F1F"
@@ -35,22 +36,16 @@ PAUSE_MARKER_COLOR_HEX = rgb_to_hex(*PAUSE_MARKER_COLOR[::-1])
 def lerp(ca, cb, a):
     return rgb_to_hex(*hex_to_rgb(ca) * (1 - a) + hex_to_rgb(cb) * a)
 
-def read_output_videos(verbose):
-    frame_filenames = sorted(f"{OUTPUT_PATH}/{filename}" for filename in sorted(os.listdir(OUTPUT_PATH)))
+def read_output_videos(verbose=False):
+    video_nr = 0
+    while (frames := read_output_video(video_nr, verbose=verbose)) is not None:
+        yield frames
+        video_nr += 1
 
-    videos = [[]]
-    for frame_filename in frame_filenames:
-        frame = cv2.imread(frame_filename)
-        if all(list(frame[np.random.randint(0, frame.shape[0]), np.random.randint(0, frame.shape[1])]) == PAUSE_MARKER_COLOR for _ in range(100)):
-            if verbose:
-                print(f"\033[30;1mLoaded video #{len(videos)} ({len(videos[-1])} frame{'s' * (len(videos[-1]) != 1)})\033[0m")
-            videos.append([])
-        else:
-            videos[-1].append(frame)
-
-    if videos[-1]:
-        print(f"\033[30;1mLoaded video #{len(videos)} ({len(videos[-1])} frame{'s' * (len(videos[-1]) != 1)})\033[0m")
-    while not videos[-1]:
-        videos.pop()
-
-    return videos
+def read_output_video(video_nr, verbose=False):
+    path_src_directory = f"{OUTPUT_PATH}/{video_nr:06}"
+    if not os.path.exists(path_src_directory):
+        return None
+    frames = [cv2.imread(f"{path_src_directory}/{filename}") for filename in sorted(os.listdir(path_src_directory))]
+    print(f"\033[30;1mLoaded video #{video_nr} ({len(frames)} frame{'s' * (len(frames) != 1)})\033[0m")
+    return frames

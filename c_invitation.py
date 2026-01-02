@@ -37,7 +37,7 @@ def render_invitation():
             shutil.copyfile(f"{RENDER_PATH}/{filename}", f"{OUTPUT_PATH}/invitation.png")
 
     duration = int(time.time() - start_time)
-    print(f"\033[32;1mFinished in {duration // 60}m {duration % 60:02}s!\033[0m")
+    print(f"\033[32;1mFinished in {duration // 60 // 60}h {duration % 60:02}s!\033[0m")
 
     return exit_code
 

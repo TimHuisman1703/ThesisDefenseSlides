@@ -11,8 +11,8 @@ from x_utils import *
 DEBUG = False
 FROM = 0
 TO = 10000
-CONVERT = True
-PRESENT = False
+CONVERT_AFTER = False
+PRESENT_AFTER = True
 
 BACKGROUND_COLOR = C_WHITE
 SIZE = (8.0 * 16 / 9, 8.0)
@@ -44,18 +44,34 @@ def render_slides():
         shutil.rmtree(OUTPUT_PATH)
     os.mkdir(OUTPUT_PATH)
 
-    print("\033[34;1mCopying frames...\033[0m")
+    print("\033[34;1mWriting frames...\033[0m")
 
     filenames = os.listdir(RENDER_PATH)
+    video_nr = 1
+    frame_nr = 0
     for filename in os.listdir(RENDER_PATH):
         nr = int("".join(c for c in filename if c.isdigit()))
         if nr % 100 == 0:
             print(f"\033[30;1m  {nr}/{len(filenames)}")
-        shutil.copyfile(f"{RENDER_PATH}/{filename}", f"{OUTPUT_PATH}/{nr:06}.png")
+
+        path_src = f"{RENDER_PATH}/{filename}"
+        frame = cv2.imread(path_src)
+        if all(list(frame[np.random.randint(0, frame.shape[0]), np.random.randint(0, frame.shape[1])]) == PAUSE_MARKER_COLOR for _ in range(100)):
+            video_nr += 1
+            frame_nr = 0
+            continue
+
+        path_dst_directory = f"{OUTPUT_PATH}/{video_nr:06}"
+        if not os.path.exists(path_dst_directory):
+            os.mkdir(path_dst_directory)
+
+        path_dst = f"{path_dst_directory}/{frame_nr:04}.png"
+        shutil.copyfile(path_src, path_dst)
+        frame_nr += 1
     print(f"\033[30;1m  {len(filenames)}/{len(filenames)}")
 
     duration = int(time.time() - start_time)
-    print(f"\033[32;1mFinished in {duration // 60}m {duration % 60:02}s!\033[0m")
+    print(f"\033[32;1mFinished in {duration // 60 // 60}h {duration // 60 % 60:02}m {duration % 60:02}s!\033[0m")
 
     return exit_code
 
@@ -69,27 +85,6 @@ class PresentationScene(MovingCameraScene):
     def all_objects(self):
         to_exclude = {self.page_number_text, self.page_number_background}
         return [obj for obj in filter(lambda x: issubclass(type(x), Mobject), self.mobjects) if obj not in to_exclude]
-
-    def update_page(self):
-        if self.page_number_text:
-            self.remove(self.page_number_text)
-            self.remove(self.page_number_background)
-
-        self.page_number += 1
-
-        self.page_number_background = always_redraw(
-            lambda: Rectangle(C_WHITE, 0.4, 0.6).round_corners(0.1).set_fill(opacity=1).set_stroke(C_WHITE, opacity=0.5, width=6 * self.camera.frame_height / 8.0) \
-                .to_corner(DOWN + RIGHT).scale(self.camera.frame_height / 8.0, about_point=ORIGIN).shift(self.camera.frame_center) \
-                .set_z_index(101)
-        )
-        self.page_number_text = always_redraw(
-            lambda: Text(str(self.page_number), color=C_DARK_GRAY).set_stroke(opacity=0) \
-                .scale(0.4 * self.camera.frame_height / 8.0).move_to(self.page_number_background)
-                .set_z_index(102)
-        )
-
-        self.add(self.page_number_background)
-        self.add(self.page_number_text)
 
     def pause(self, text=None):
         self.hold(0.15)
@@ -117,55 +112,157 @@ class PresentationScene(MovingCameraScene):
         )
         self.remove(ignore_me)
 
+    def flatten(self, *mobjects):
+        flattened = []
+        for mobject in mobjects:
+            if type(mobject) == Group:
+                flattened.extend(self.flatten(*mobject))
+            else:
+                flattened.append(mobject)
+        return flattened
+
+    def into_frame(self, *mobjects, invert=False):
+        scale = self.camera.frame_height / SIZE[1]
+        shift = self.camera.frame_center
+
+        for mobject in self.flatten(*mobjects):
+            if not invert:
+                mobject \
+                    .scale(scale, about_point=ORIGIN) \
+                    .shift(shift) \
+                    .set_stroke(width=mobject.get_stroke_width() * scale)
+            else:
+                mobject \
+                    .shift(-shift) \
+                    .scale(1 / scale, about_point=ORIGIN) \
+                    .set_stroke(width=mobject.get_stroke_width() / scale)
+
+    def save_state(self, *mobjects):
+        for mobject in self.flatten(*mobjects):
+            mobject.state_center = mobject.get_center()
+            mobject.state_width = mobject.width
+            mobject.state_height = mobject.height
+            mobject.state_stroke_width = mobject.get_stroke_width()
+        return mobjects
+
+    def load_state(self, *mobjects):
+        for mobject in self.flatten(*mobjects):
+            mobject.move_to(mobject.state_center)
+            mobject.stretch_to_fit_width(mobject.state_width)
+            mobject.stretch_to_fit_height(mobject.state_height)
+            mobject.set_stroke(width=mobject.state_stroke_width)
+        return mobjects
+
+    def fix(self, *mobjects: Mobject, absolute=False):
+        for mobject in self.flatten(*mobjects):
+            if not absolute:
+                self.into_frame(mobject, invert=True)
+            self.save_state(mobject)
+            mobject.add_updater(self.fix_updater)
+
+    def unfix(self, *mobjects: Mobject):
+        for mobject in self.flatten(*mobjects):
+            mobject.remove_updater(self.fix_updater)
+
+    def create_title(self, title):
+        title_text = Tex(f"\\underline{{\\textbf{{{title}}}}}", color=C_BLACK)
+        title_text.set_z_index(92)
+        title_background = title_text.copy().set_stroke(C_WHITE, width=16)
+        title_background.set_z_index(91)
+        title_group = Group(title_text, title_background)
+        title_group.scale(1.2).to_corner(UP + LEFT)
+
+        return title_group
+
+    def update_page(self):
+        if self.page_number_text:
+            self.remove(self.page_number_text)
+            self.remove(self.page_number_background)
+
+        self.page_number += 1
+
+        self.page_number_background = Rectangle(C_WHITE, 0.4, 0.6).round_corners(0.1).set_fill(opacity=1).set_stroke(C_WHITE, opacity=0.5)
+        self.page_number_background.to_corner(DOWN + RIGHT)
+        self.page_number_background.set_z_index(101)
+        self.add(self.page_number_background)
+
+        self.page_number_text = Text(str(self.page_number), color=C_DARK_GRAY).set_stroke(opacity=0).scale(0.4)
+        self.page_number_text.move_to(self.page_number_background)
+        self.page_number_text.set_z_index(102)
+        self.add(self.page_number_text)
+
+        self.fix(self.page_number_background, self.page_number_text, absolute=True)
+
     def load_image(self, name):
         image = ImageMobject(f"{PATH}/assets/{name}.png")
         image.set_resampling_algorithm(RESAMPLING_ALGORITHMS["bilinear"])
         return image
 
-    def clear(self, fade=0.0):
-        if fade:
+    def clear(self, run_time=0.0):
+        if run_time:
             white_rectangle = Rectangle(WHITE, 100, 100).set_fill(opacity=1)
             white_rectangle.set_z_index(99)
             self.play(
                 FadeIn(white_rectangle),
-                run_time=fade
+                run_time=run_time
             )
 
         self.remove(*self.all_objects())
         self.camera.frame.move_to(ORIGIN)
         self.camera.frame.scale_to_fit_height(SIZE[1])
 
-    def set_title(self, text, **kwargs):
-        kwargs["color"] = kwargs.get("color", C_BLACK)
-
-        self.title = Text(text, **kwargs).scale(0.8).to_corner(UP + LEFT).shift((0.2, -0.3, 0))
-        self.add(self.title)
-
-        self.next_bullet_point_pos = self.title.get_corner(UP + LEFT) + DOWN * 0.9
-
-    def add_bullet_point(self, text, **kwargs):
-        kwargs["color"] = kwargs.get("color", "#1F1F1F")
-
-        spacing = len(text) - len(text.strip())
-        text = text.strip()
-
-        last_bullet_point = Text(text, **kwargs).scale(0.6).move_to(self.next_bullet_point_pos, LEFT + UP).shift(0.3 * spacing * RIGHT)
-        self.add(last_bullet_point)
-
-        self.next_bullet_point_pos += DOWN * 0.6
-
-        return last_bullet_point
-
     def create_arrow(self, arrow, opacity=1):
         start, end = arrow.get_start_and_end()
         opacity = arrow.get_stroke_opacity()
-        arrow.set_opacity(0).put_start_and_end_on(start, start + 0.00001 * (end - start))
+        arrow.set_opacity(0).put_start_and_end_on(start, start + 1e-5 * (end - start))
         return arrow.animate.set_opacity(opacity).put_start_and_end_on(start, end)
 
-    def construct(self):
-        self.page_number = 0
+    def create_code_diagram(self, *stages: str, z_index=0):
+        pos_prv = ORIGIN
+        pos = ORIGIN
 
-        self.title = None
+        group = Group()
+        for stage in stages:
+            if not stage:
+                pos += DOWN * 0.2
+                continue
+
+            rect = Rectangle(C_LIGHT_GRAY, 0.6, 2.5).set_stroke(width=4).set_fill(C_LIGHT_LIGHT_GRAY, opacity=1).round_corners(0.1)
+            rect.move_to(pos)
+            rect.set_z_index(z_index + 0.6)
+            rect_back = rect.copy().set_stroke(C_WHITE, width=rect.get_stroke_width() + 8)
+            rect_back.set_z_index(z_index + 0.2)
+
+            text = Text(stage, color=C_BLACK).scale(0.55)
+            text.move_to(pos)
+            text.set_z_index(z_index + 0.8)
+
+            lines = []
+            if np.linalg.norm(pos - pos_prv) > 1e-3:
+                line = Line(pos_prv, pos).set_stroke(C_GRAY, width=12).set_cap_style(CapStyleType.ROUND)
+                line.set_z_index(z_index + 0.4)
+                line_back = line.copy().set_stroke(C_WHITE, width=line.get_stroke_width() + 8)
+                line_back.set_z_index(z_index)
+                lines.append(Group(line, line_back))
+
+            group.add(
+                Group(
+                    Group(
+                        Group(rect, rect_back),
+                        text,
+                    ),
+                    *lines
+                )
+            )
+
+            pos_prv, pos = pos, pos + DOWN * 0.7
+
+        return group
+
+    def construct(self):
+        self.fix_updater = lambda obj: self.into_frame(*self.load_state(obj))
+
+        self.page_number = 0
         self.page_number_text = None
         self.update_page()
 
@@ -177,19 +274,60 @@ class PresentationScene(MovingCameraScene):
     #                              #
     ################################
 
-    def animate_slide_intro_outro(self):
-        paper_title_text = Text("A Fast Geometric Multigrid Method\nfor Volumetric Meshes", color=C_BLACK).scale(1.1).move_to(ORIGIN).shift(DOWN * 0.9)
-        authors_text = Text("Tim Huisman", color=DARK_GREY).scale(0.6).next_to(paper_title_text, DOWN)
-        presented_by_text = Text("Presented by Tim Huisman", color=GREY).scale(0.6).next_to(authors_text, DOWN).shift(DOWN * 0.4)
+    def animate_slide_first_page(self):
+        background = self.load_image("invitation_background")
+        background.set_z_index(0)
+        self.add(background)
 
-        self.add(paper_title_text, authors_text, presented_by_text)
+        def add_text(msg, color, width=8, **kwargs):
+            text = Text(msg, color=color, **kwargs)
+            background = text.copy().set_stroke(C_WHITE, opacity=1, width=width)
+            text.set_z_index(10)
+            background.set_z_index(10 - 0.1)
+            group = Group(background, text)
+            return group
 
-        self.pause("Intro")
+        background_fade = Rectangle(C_WHITE, 100, 100).set_fill(C_WHITE, opacity=0.95)
+        background_fade.set_z_index(1)
+        self.add(background_fade)
+
+        title_text = add_text("A Fast Geometric Multigrid Method\nfor Volumetric Meshes", color=C_BLACK, weight=BOLD) \
+            .scale(1.0).move_to(ORIGIN).shift(UP * 1.6)
+        author_text = add_text("MSc Thesis Defense - Tim Huisman", color=C_DARK_GRAY) \
+            .scale(0.6).next_to(title_text, DOWN).align_to(title_text, LEFT)
+        self.add(author_text)
+
+        spot_tet_mg = [None] * 3
+        for i in range(3):
+            spot_tet_mg[i] = self.load_image(f"spot_tet_mg_{i}").scale(0.7)
+            spot_tet_mg[i].move_to(DOWN * 2.5 + (i - 1) * (RIGHT * 3.0 + DOWN * 0.4))
+            spot_tet_mg[i].set_z_index(5)
+
+        group = Group(
+            title_text,
+            author_text,
+            *spot_tet_mg
+        )
+        group.move_to(DOWN * 0.2)
+        self.add(group)
+
+        self.pause("First page")
 
         self.clear()
 
+    def animate_slide_problem_summary(self):
+        pass
+
     def animate_slide_dirichlet_demonstration(self):
         self.pause("Start dirichlet_demonstration")
+
+        title_tex = self.create_title("Example Problem")
+        self.play(
+            FadeIn(title_tex),
+            run_time=0.6
+        )
+        self.fix(title_tex)
+        self.pause("Show title")
 
         n = 16
         size = 6
@@ -336,10 +474,11 @@ class PresentationScene(MovingCameraScene):
 
         to_zoom_disappear = Group(*cells_hot_flat, *cells_cold_flat, *[obj for j, obj in enumerate(cells_flat) if j != fy * n + fx])
         camera_zoom_1 = 3.6
+        camera_shift_1 = cells[fy][fx].get_center() + LEFT * (1.5 * spacing)
         self.play(
             *[FadeOut(obj) for obj in to_zoom_disappear],
             FadeIn(question_marks[fy][fx], scale=0),
-            self.camera.frame.animate.scale(1 / camera_zoom_1).shift(cells[fy][fx + 1].get_center()),
+            self.camera.frame.animate.scale(1 / camera_zoom_1).shift(camera_shift_1),
             run_time=1.6
         )
         self.pause("Zoom in")
@@ -428,7 +567,7 @@ class PresentationScene(MovingCameraScene):
         self.pause("Show neighbor outlines")
 
         system_container = Rectangle(C_GRAY, 1.2, 0.8).set_stroke(width=1.2).set_fill(C_WHITE, opacity=1)
-        system_container.move_to(cells[fy][fx + 1]).shift((1.2, 0.2, 0.0))
+        system_container.move_to(camera_shift_1).shift((-1.2, 0.0, 0.0))
         system_container.set_z_index(20)
         equation_tex = MathTex("x", "={", "y", "+", "y", "+", "y", "+", "y", "\\over 4}").set_fill(C_BLACK).scale(0.16)
         equation_tex.set_color_by_tex("x", C_WHITE)
@@ -579,14 +718,14 @@ class PresentationScene(MovingCameraScene):
         )
         self.pause("Add many more equations")
 
-        camera_shift_2 = RIGHT * 2
+        camera_shift_2 = LEFT * 2.4
 
         system_group = Group(system_container, *equations_tex)
         for row in equations_cells:
             system_group.add(*row)
         for obj in system_group:
             obj.generate_target()
-            obj.target.shift(-cells[fy][fx + 1].get_center()).scale(camera_zoom_1, about_point=ORIGIN).shift(camera_shift_2)
+            obj.target.shift(-camera_shift_1).scale(camera_zoom_1, about_point=ORIGIN).shift(camera_shift_2)
             if obj == system_container:
                 obj.target.set_stroke(width = obj.get_stroke_width() * camera_zoom_1)
             else:
@@ -602,7 +741,7 @@ class PresentationScene(MovingCameraScene):
                     ])
         self.play(
             *[FadeOut(obj) for obj in cell_outlines],
-            self.camera.frame.animate.shift(-cells[fy][fx + 1].get_center()).scale(camera_zoom_1).shift(camera_shift_2),
+            self.camera.frame.animate.shift(-camera_shift_1).scale(camera_zoom_1).shift(camera_shift_2),
             *[MoveToTarget(obj) for obj in system_group],
             run_time=0.6
         )
@@ -625,6 +764,20 @@ class PresentationScene(MovingCameraScene):
             run_time=0.4
         )
         self.pause("Show matrix equation")
+
+        title_tex_old = title_tex
+        self.unfix(title_tex_old)
+
+        title_tex = self.create_title("Gauss-Seidel")
+        self.into_frame(title_tex)
+        self.play(
+            FadeOut(title_tex_old),
+            FadeIn(title_tex, shift=DOWN),
+            run_time=0.6
+        )
+        title_tex.to_corner(UP + LEFT)
+        self.fix(title_tex, absolute=True)
+        self.pause("Replace title")
 
         self.play(
             *[FadeOut(obj, scale=0) for obj in question_marks_flat],
@@ -731,7 +884,7 @@ class PresentationScene(MovingCameraScene):
             lag_ratio=0.01
         )
 
-        camera_shift_4 = UP * 0.12
+        camera_shift_4 = UP * 0.24
         self.play(
             first_gs_animation,
             self.camera.frame.animate.shift((amount - 1) * LEFT * spacing).shift(-camera_shift_3).scale(camera_zoom_3).shift(camera_shift_4),
@@ -785,11 +938,11 @@ class PresentationScene(MovingCameraScene):
                 cells_big[iy][ix] = cell_big
                 cells_big_flat.append(cell_big)
 
-        camera_shift_5 = RIGHT * 4.4
+        camera_shift_5 = np.array([4.4, 0.4, 0.0])
         camera_zoom_5 = 0.8
         self.play(
-            *[obj.animate.set_fill(opacity=1).shift(2 * camera_shift_5) for obj in cells_big_flat],
-            *[obj.animate.set_fill(opacity=1).shift(2 * camera_shift_5) for obj in walls_big],
+            *[obj.animate.set_fill(opacity=1).shift((2 * camera_shift_5[0]) * RIGHT) for obj in cells_big_flat],
+            *[obj.animate.set_fill(opacity=1).shift((2 * camera_shift_5[0]) * RIGHT) for obj in walls_big],
             self.camera.frame.animate.scale(1 / camera_zoom_5).shift(camera_shift_5),
             run_time=1.2
         )
@@ -873,9 +1026,11 @@ class PresentationScene(MovingCameraScene):
         )
         self.pause("Show \"Multigrid\" text")
 
-        self.clear(fade=0.6)
+        self.clear(run_time=0.6)
 
     def animate_slide_multigrid_diagram(self):
+        title_tex = self.create_title("Multigrid")
+
         icons = []
 
         size = 0.8
@@ -899,11 +1054,14 @@ class PresentationScene(MovingCameraScene):
             icons[i].move_to(np.array([-5.6, spacing_vert * (1 - i), 0.0]))
 
         timeline_0 = Line(LEFT * 4.8, RIGHT * 20.0).set_stroke(C_LIGHT_GRAY, width=8).set_cap_style(CapStyleType.ROUND).set_y(icons[0].get_y())
+        timeline_0.set_z_index(1)
 
         self.play(
+            FadeIn(title_tex),
             FadeIn(icons[0], scale=1.5),
             run_time=0.6
         )
+        self.fix(title_tex)
         self.play(
             Create(timeline_0),
             rate_func=rush_into,
@@ -949,16 +1107,29 @@ class PresentationScene(MovingCameraScene):
         )
         self.pause("Remove unnecessary GS's")
 
-        gap_vert = 0.24
+        gap_vert = 0.36
         res_length = 0.4
         start = gs_icons[1].get_right()[0] + gap
+        conn_line_0_a = Line(
+            np.array([start, spacing_vert, 0.0]),
+            np.array([start, spacing_vert - gap_vert, 0.0])
+        ).set_stroke(C_LIGHT_LIGHT_GRAY, width=8).set_cap_style(CapStyleType.ROUND)
         res_line_0_a = Line(
-            np.array([start, spacing_vert - gap_vert, 0.0]),
+            conn_line_0_a.get_end(),
             np.array([start + res_length, spacing_vert - gap_vert, 0.0]),
         ).set_stroke(C_LIGHT_GRAY, width=8).set_cap_style(CapStyleType.ROUND)
+        res_line_0_a.set_z_index(1)
+        subtract_tex = Tex("$\\mathbf{-}$", color=C_DARK_GRAY).scale(0.5).move_to(np.array([res_line_0_a.get_x(), conn_line_0_a.get_y(), 0.0]))
+        self.play(
+            Create(conn_line_0_a),
+            run_time=0.2,
+            rate_func=rush_into
+        )
         self.play(
             Create(res_line_0_a),
-            run_time=0.4
+            FadeIn(subtract_tex, scale=0),
+            run_time=0.2,
+            rate_func=rush_from
         )
         self.pause("Introduce residual equation 0")
 
@@ -1027,13 +1198,24 @@ class PresentationScene(MovingCameraScene):
             run_time=0.3,
             rate_func=rush_from
         )
-        self.pause("Draw first prolongation")
-
+        self.hold(0.2)
         self.play(
             Write(prolong_10_text),
             run_time=0.4
         )
-        self.pause("Draw prolongation text")
+        self.pause("Draw first prolongation")
+
+        conn_line_0_b = Line(
+            res_line_0_b.get_end(),
+            res_line_0_b.get_end() + gap_vert * UP
+        ).set_stroke(C_LIGHT_LIGHT_GRAY, width=8).set_cap_style(CapStyleType.ROUND)
+        add_tex = Tex("$\\mathbf{+}$", color=C_DARK_GRAY).scale(0.5).move_to(np.array([res_line_0_b.get_x(), conn_line_0_b.get_y(), 0.0]))
+        self.play(
+            Create(conn_line_0_b),
+            FadeIn(add_tex, scale=0.0),
+            run_time=0.3
+        )
+        self.pause("Add error correction")
 
         gs_icons = gs_icons[:2] + [gs_icon_template.copy() for _ in range(2)]
         gs_icons[2].move_to(res_line_0_b.get_end() + RIGHT * (gs_icons[2].get_width() / 2 + gap)).set_y(spacing_vert)
@@ -1058,16 +1240,14 @@ class PresentationScene(MovingCameraScene):
         )
         self.pause("Highlight mid solve")
 
-        self.play(
-            FadeIn(icons[2], scale=1.5),
-            run_time=0.6
-        )
-        self.pause("Introduce coarsest domain")
-
         to_recurse = [
             *gs_icons,
+            conn_line_0_a,
             res_line_0_a,
+            subtract_tex,
             res_line_0_b,
+            conn_line_0_b,
+            add_tex,
             restrict_01_arrow,
             restrict_01_text,
             prolong_10_arrow,
@@ -1079,6 +1259,8 @@ class PresentationScene(MovingCameraScene):
             prolong_10_arrow,
             prolong_10_text,
             res_line_0_b,
+            conn_line_0_b,
+            add_tex,
             gs_icons[2],
             gs_icons[3]
         ]
@@ -1087,6 +1269,10 @@ class PresentationScene(MovingCameraScene):
             obj = obj.copy()
             to_recurse[idx] = obj
             obj.shift(offset_right_down)
+        restrict_12_arrow = to_recurse[-6]
+        restrict_12_text = to_recurse[-5]
+        prolong_21_arrow = to_recurse[-4]
+        prolong_21_text = to_recurse[-3]
         offset_right = RIGHT * (gs_icons[3].get_left()[0] + gs_icons[3].get_width() - gs_icons[0].get_left()[0] - solve_1.get_width())
         self.play(
             *[obj.animate.shift(offset_right) for obj in to_move_right],
@@ -1109,6 +1295,7 @@ class PresentationScene(MovingCameraScene):
                 .set_fill(opacity=0)
                 .move_to(to_recurse_group),
             FadeIn(to_recurse_group, scale=0, target_position=solve_1.get_center()),
+            FadeIn(icons[2], scale=0.8),
             run_time=0.8
         )
         self.remove(solve_1)
@@ -1118,6 +1305,7 @@ class PresentationScene(MovingCameraScene):
         solve_2 = to_recurse[-1]
         solve_rectangle_new = Rectangle(C_GRAY, 0.44 + diff, 0.84).set_stroke(C_GRAY, width=4).set_fill(lerp(C_WHITE, C_GREEN, 0.5), opacity=1).round_corners(0.1)
         solve_rectangle_new.move_to(solve_2)
+        solve_rectangle_new.set_z_index(solve_2[0].get_z_index())
         direct_text = Text("Direct", color=C_DARK_GRAY).scale(0.4).set_fill(opacity=0)
         direct_text.move_to(solve_2)
         direct_text.set_z_index(solve_2[1].get_z_index())
@@ -1193,12 +1381,12 @@ class PresentationScene(MovingCameraScene):
         self.pause("Put camera back")
 
         self.play(
-            icons[0].animate.scale(1.6),
+            *[obj.animate.set_fill(C_BLUE).scale(1.6, about_point=icons[0].get_center()) for obj in icons[0]],
             run_time=0.3
         )
         self.hold(0.8)
         self.play(
-            icons[0].animate.scale(1 / 1.6),
+            *[obj.animate.scale(1 / 1.6, about_point=icons[0].get_center()) for obj in icons[0]],
             run_time=0.3
         )
         self.pause("Highlight fine domain")
@@ -1211,11 +1399,13 @@ class PresentationScene(MovingCameraScene):
         self.play(
             Create(highlight_domain_1),
             Create(highlight_domain_2),
+            *[obj.animate.set_fill(C_RED) for obj in icons[1]],
+            *[obj.animate.set_fill(C_RED) for obj in icons[2]],
             run_time=0.6
         )
         self.pause("Highlight missing domains")
 
-        highlight_restrict_01 = Rectangle(C_RED, 2.40, 1.28).set_stroke(C_RED, width=12, opacity=0.75).round_corners(0.2).set_cap_style(CapStyleType.ROUND)
+        highlight_restrict_01 = Rectangle(C_RED, 2.16, 1.28).set_stroke(C_RED, width=12, opacity=0.75).round_corners(0.2).set_cap_style(CapStyleType.ROUND)
         highlight_restrict_01.set_z_index(25)
         highlight_restrict_01.move_to(Group(restrict_01_arrow, restrict_01_text))
         highlight_restrict_12 = highlight_restrict_01.copy()
@@ -1229,11 +1419,19 @@ class PresentationScene(MovingCameraScene):
             Create(highlight_restrict_12),
             Create(highlight_prolong_21),
             Create(highlight_prolong_10),
+            restrict_01_arrow.animate.set_color(C_RED),
+            restrict_01_text.animate.set_color(C_RED),
+            prolong_10_arrow.animate.set_color(C_RED),
+            prolong_10_text.animate.set_color(C_RED),
+            restrict_12_arrow.animate.set_color(C_RED),
+            restrict_12_text.animate.set_color(C_RED),
+            prolong_21_arrow.animate.set_color(C_RED),
+            prolong_21_text.animate.set_color(C_RED),
             run_time=0.6
         )
         self.pause("Highlight missing transfer operators")
 
-        self.clear(fade=0.6)
+        self.clear(run_time=0.6)
 
     def animate_slide_prolongation_demonstration(self):
         n = 8
@@ -1535,7 +1733,7 @@ class PresentationScene(MovingCameraScene):
         spot_tri_mg[0].scale(0.8)
         spot_tri_mg[0].move_to(RIGHT * (8.0 + SIZE[0] / 6))
         question_mark_2_tex = MathTex("\\textbf{?!}", color=C_RED).scale(1.6)
-        question_mark_2_tex.move_to(np.array([SIZE[0] / 3, 3.4, 0.0]))
+        question_mark_2_tex.move_to(np.array([SIZE[0] / 3, 3.3, 0.0]))
         self.add(split_line_2, spot_tri_mg[0])
         self.play(
             group_1.animate.scale(0.9).move_to((SIZE[0] / 3) * LEFT),
@@ -1598,10 +1796,26 @@ class PresentationScene(MovingCameraScene):
             )
         self.pause("Show coarse spots")
 
-        self.clear(fade=0.6)
+        self.clear(run_time=0.6)
 
     def animate_slide_gravo_demonstration(self):
         self.pause("Start gravo_demonstration")
+
+        title_tex = self.create_title("Gravo MG")
+        title_tex.generate_target()
+        title_tex.scale(2.0).move_to(ORIGIN)
+        self.play(
+            FadeIn(title_tex, shift=UP),
+            run_time=0.6,
+            rate_func=rush_from
+        )
+        self.pause("Show \"Gravo MG\" title")
+
+        self.play(
+            MoveToTarget(title_tex),
+            run_time=0.6
+        )
+        self.fix(title_tex)
 
         V = []
         w = 16
@@ -1711,7 +1925,24 @@ class PresentationScene(MovingCameraScene):
         self.remove(*edges_lose)
         self.pause("Remove some edges")
 
-        self.pause("Step 1, sampling")
+        code_diagram = self.create_code_diagram(
+            "Sampling",
+            "Clustering",
+            "Connecting",
+            "",
+            "Smoothing",
+            "",
+            "Triangulating",
+            "Prolonging",
+            z_index=80
+        )
+        code_diagram.move_to(ORIGIN).to_edge(LEFT)
+
+        self.play(
+            FadeIn(code_diagram[0][0], scale=0),
+            run_time=0.4
+        )
+        self.pause("Show step: Sampling")
 
         Vf = V
         Ef = E[:E.shape[0] - lose]
@@ -1858,7 +2089,15 @@ class PresentationScene(MovingCameraScene):
             i += 1
         self.pause("Do all samples")
 
-        self.pause("Step 2, clustering")
+        self.play(
+            *[Create(obj) for obj in code_diagram[1][1]],
+            run_time=0.2
+        )
+        self.play(
+            FadeIn(code_diagram[1][0], scale=0),
+            run_time=0.4
+        )
+        self.pause("Show step: Clustering")
 
         q = [(0.0, 0, idx, -1, j) for j, idx in enumerate(samples)]
         pred = [None] * Vf.shape[0]
@@ -1975,6 +2214,16 @@ class PresentationScene(MovingCameraScene):
         )
         self.pause("Fade fine part of the clusters a bit")
 
+        self.play(
+            *[Create(obj) for obj in code_diagram[2][1]],
+            run_time=0.2
+        )
+        self.play(
+            FadeIn(code_diagram[2][0], scale=0),
+            run_time=0.4
+        )
+        self.pause("Show step: Connecting")
+
         min_key = min(connecting_edges.keys(), key=lambda x: np.linalg.norm(Vc[x[0]] + Vc[x[1]]))
         highlight_vertex_color_pairs = []
         for idx, vertex in enumerate(vertices_fine):
@@ -2046,7 +2295,15 @@ class PresentationScene(MovingCameraScene):
         )
         self.pause("Draw all coarse edges")
 
-        self.pause("Step 3, smoothing")
+        self.play(
+            *[Create(obj) for obj in code_diagram[3][1]],
+            run_time=0.2
+        )
+        self.play(
+            FadeIn(code_diagram[3][0], scale=0),
+            run_time=0.4
+        )
+        self.pause("Show step: Smoothing")
 
         Vc_new = [np.zeros((3,)) for _ in range(len(samples))]
         Vc_new_num = [0] * len(samples)
@@ -2094,8 +2351,6 @@ class PresentationScene(MovingCameraScene):
 
         Vc = Vc_new
 
-        self.pause("Step 4, triangulating")
-
         self.play(
             *[FadeOut(obj) for obj in cluster_edges],
             *[obj.animate.set_fill(lerp(C_WHITE, C_BLUE, 0.35)) for obj in vertices_fine],
@@ -2103,6 +2358,16 @@ class PresentationScene(MovingCameraScene):
             run_time=0.6
         )
         self.pause("Recolor points, fade cluster edges")
+
+        self.play(
+            *[Create(obj) for obj in code_diagram[4][1]],
+            run_time=0.2
+        )
+        self.play(
+            FadeIn(code_diagram[4][0], scale=0),
+            run_time=0.4
+        )
+        self.pause("Show step: Triangulating")
 
         Tc = []
         for a in range(len(neighc)):
@@ -2171,7 +2436,19 @@ class PresentationScene(MovingCameraScene):
             *[obj.animate.set_fill(C_BLUE) for obj in vertices_fine],
             run_time=0.4
         )
-        self.pause("Focus on fine vertex to prolongate")
+        self.pause("Bring back fine vertices in focus")
+
+        self.play(
+            *[Create(obj) for obj in code_diagram[5][1]],
+            run_time=0.2
+        )
+        self.play(
+            FadeIn(code_diagram[5][0], scale=0),
+            run_time=0.4
+        )
+        self.pause("Show step: Prolonging")
+
+        self.fix(code_diagram)
 
         camera_zoom = 1.7
         camera_shift = np.array([0.7, 0.1, 0.0])
@@ -2348,7 +2625,169 @@ class PresentationScene(MovingCameraScene):
         )
         self.pause("Draw remaining prolongations")
 
-        self.clear(fade=0.6)
+        self.clear(run_time=0.6)
+
+    def animate_slide_tetrahedral_meshes(self):
+        self.pause("Start tetrahedral_meshes")
+
+        background_tex = Text("<\\background>", color=BLACK, font="Consolas").scale(1.6)
+        self.play(
+            FadeIn(background_tex, shift=UP),
+            run_time=0.6
+        )
+        self.pause("Show end of background")
+
+        title_tex = self.create_title("Our Work?")
+        title_tex.generate_target()
+        title_tex.scale(2.0).move_to(ORIGIN)
+        self.play(
+            FadeOut(background_tex, shift=UP),
+            FadeIn(title_tex, shift=UP),
+            run_time=0.6
+        )
+        self.pause("Replace with title")
+
+        spot_slice_tri = self.load_image("spot_slice_tri").scale(0.8)
+        spot_slice_tet = self.load_image("spot_slice_tet").scale(0.8)
+        spot_slice_tri.move_to(LEFT * 4.8 + DOWN * 0.2)
+        spot_slice_tet.move_to(RIGHT * 4.8 + DOWN * 0.2)
+        tri_and_tet = self.load_image("tri_and_tet").scale_to_fit_width(5.0)
+        tri_and_tet.move_to(RIGHT * 0.1 + DOWN * 0.2)
+
+        triangular_text = Text("Triangular", color=C_RED).scale(0.72)
+        triangular_text.next_to(tri_and_tet, DOWN).shift(UP * 0.3).align_to(tri_and_tet, LEFT)
+        tetrahedral_text = Text("Tetrahedral", color=C_GREEN).scale(0.72)
+        tetrahedral_text.next_to(tri_and_tet, DOWN).shift(UP * 0.3).align_to(tri_and_tet, RIGHT)
+
+        surfaces_text = Text("Surfaces", color=C_RED).scale(0.72)
+        surfaces_text.next_to(tri_and_tet, UP).set_x(triangular_text.get_x())
+        volumes_text = Text("Volumes", color=C_GREEN).scale(0.72)
+        volumes_text.next_to(tri_and_tet, UP).set_x(tetrahedral_text.get_x())
+
+        self.play(
+            MoveToTarget(title_tex),
+            run_time=0.6
+        )
+        self.play(
+            FadeIn(spot_slice_tri, shift=UP),
+            FadeIn(surfaces_text, shift=UP),
+            run_time=0.6
+        )
+        self.pause("Show spot tri")
+
+        self.play(
+            FadeIn(spot_slice_tet, shift=UP),
+            FadeIn(volumes_text, shift=UP),
+            run_time=0.6
+        )
+        self.pause("Show spot tet")
+
+        self.play(
+            FadeIn(tri_and_tet, shift=UP),
+            FadeIn(triangular_text, shift=UP),
+            FadeIn(tetrahedral_text, shift=UP),
+            run_time=0.6
+        )
+        self.pause("Show tri and tet")
+
+        width = SIZE[0] / 2 + spot_slice_tet.get_left()[0]
+        half_background = Rectangle(C_GRAY, SIZE[1], width).set_fill(C_WHITE, opacity=1).set_stroke(opacity=0)
+        half_background.move_to(LEFT * (0.5 * SIZE[0] + 0.5 * width))
+        research_questions_text = Text("Research Questions:", color=C_DARK_GRAY).scale(0.6)
+        research_questions_text.to_edge(LEFT).set_y(2.4).shift(LEFT * width)
+        self.play(
+            half_background.animate.shift(RIGHT * width),
+            research_questions_text.animate.shift(RIGHT * width),
+            run_time=0.8,
+            rate_func=rush_from
+        )
+        self.pause("Hide tri-part")
+
+        research_question_1_text = Text(
+            "1. How can Gravo MG be adapted\nfor tetrahedral meshes?",
+            line_spacing=0.8,
+            color=C_DARK_GRAY,
+            t2s={"Gravo MG": ITALIC},
+            t2w={"adapted": BOLD, "for tetrahedral meshes": BOLD}
+        ).scale(0.6)
+        research_question_1_text.next_to(research_questions_text, DOWN).to_edge(LEFT).shift(np.array([1.0, -0.2, 0.0]))
+        emoji_1_text = self.load_image("tools_emoji")
+        emoji_1_text.move_to(research_question_1_text).to_edge(LEFT)
+        self.play(
+            FadeIn(research_question_1_text, shift=RIGHT),
+            FadeIn(emoji_1_text, shift=RIGHT),
+            run_time=0.4,
+            rate_func=rush_from
+        )
+        self.pause("Show RQ 1")
+
+        research_question_2_text = Text(
+            "2. What design decisions can be made\nto improve convergence of the\nhierarchies it generates?",
+            line_spacing=0.8,
+            color=C_DARK_GRAY,
+            t2w={"improve convergence": BOLD}
+        ).scale(0.6)
+        research_question_2_text.next_to(research_question_1_text, DOWN).to_edge(LEFT).shift(np.array([1.0, -0.2, 0.0]))
+        emoji_2_text = self.load_image("trend_emoji")
+        emoji_2_text.move_to(research_question_2_text).to_edge(LEFT)
+        self.play(
+            FadeIn(research_question_2_text, shift=RIGHT),
+            FadeIn(emoji_2_text, shift=RIGHT),
+            run_time=0.4,
+            rate_func=rush_from
+        )
+        self.pause("Show RQ 2")
+
+        research_question_3_text = Text(
+            "3. How does the adapted Gravo MG\ncompare to other methods in both\nruntime and convergence?",
+            line_spacing=0.8,
+            color=C_DARK_GRAY,
+            t2s={"Gravo MG": ITALIC},
+            t2w={"compare to other methods": BOLD}
+        ).scale(0.6)
+        research_question_3_text.next_to(research_question_2_text, DOWN).to_edge(LEFT).shift(np.array([1.0, -0.2, 0.0]))
+        emoji_3_text = self.load_image("timer_emoji")
+        emoji_3_text.move_to(research_question_3_text).to_edge(LEFT)
+        self.play(
+            FadeIn(research_question_3_text, shift=RIGHT),
+            FadeIn(emoji_3_text, shift=RIGHT),
+            run_time=0.4,
+            rate_func=rush_from
+        )
+        self.pause("Show RQ 3")
+
+        self.clear(run_time=0.6)
+
+    def animate_slide_contribution_basics(self):
+        pass
+
+    def animate_slide_experiments(self):
+        pass
+
+    def animate_slide_optimization_1_vertex_ordering(self):
+        pass
+
+    def animate_slide_optimization_2_sampling_density(self):
+        pass
+
+    def animate_slide_optimization_3_pit_prevention(self):
+        pass
+
+    def animate_slide_optimization_4_boundary_aware_smoothing(self):
+        pass
+
+    def animate_slide_optimization_5_parallelization(self):
+        pass
+
+    def animate_slide_experiment_revised(self):
+        pass
+
+    def animate_slide_summary_conclusion(self):
+        pass
+
+    def animate_slide_last_page(self):
+        # TODO: replace with something?
+        self.animate_slide_first_page()
 
     ###################################
     #                                 #
@@ -2357,24 +2796,37 @@ class PresentationScene(MovingCameraScene):
     ###################################
 
     def animate(self):
-        # self.animate_slide_intro_outro()
+        self.animate_slide_first_page()
+
+        self.animate_slide_problem_summary() #TODO
 
         self.animate_slide_dirichlet_demonstration()
         self.animate_slide_multigrid_diagram()
         self.animate_slide_prolongation_demonstration()
         self.animate_slide_gravo_demonstration()
+        self.animate_slide_tetrahedral_meshes()
 
-        # self.animate_slide_intro_outro()
+        self.animate_slide_contribution_basics() #TODO
+        self.animate_slide_experiments() #TODO
+        self.animate_slide_optimization_1_vertex_ordering() #TODO
+        self.animate_slide_optimization_2_sampling_density() #TODO
+        self.animate_slide_optimization_3_pit_prevention() #TODO
+        self.animate_slide_optimization_4_boundary_aware_smoothing() #TODO
+        self.animate_slide_optimization_5_parallelization() #TODO
+        self.animate_slide_experiment_revised() #TODO
+
+        self.animate_slide_summary_conclusion() #TODO
+        self.animate_slide_last_page() #TODO
 
 if __name__ == "__main__":
     exit_code = render_slides()
 
     if exit_code == 0:
-        if CONVERT:
+        if CONVERT_AFTER:
             from bb_convert import convert
             convert()
 
-        if PRESENT:
+        if PRESENT_AFTER:
             from ba_present import present
             present(
                 DEBUG_FRAMERATE if DEBUG else DEFAULT_FRAMERATE,
