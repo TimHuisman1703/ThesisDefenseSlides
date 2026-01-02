@@ -8,7 +8,7 @@ import time
 
 from x_utils import *
 
-DEBUG = False
+DEBUG = True
 FROM = 0
 TO = 10000
 CONVERT_AFTER = False
@@ -227,7 +227,7 @@ class PresentationScene(MovingCameraScene):
                 pos += DOWN * 0.2
                 continue
 
-            rect = Rectangle(C_LIGHT_GRAY, 0.6, 2.5).set_stroke(width=4).set_fill(C_LIGHT_LIGHT_GRAY, opacity=1).round_corners(0.1)
+            rect = Rectangle(C_LIGHT_GRAY, 0.6, 2.5).set_stroke(width=4).set_fill(lerp(C_WHITE, C_LIGHT_GRAY, 0.5), opacity=1).round_corners(0.1)
             rect.move_to(pos)
             rect.set_z_index(z_index + 0.6)
             rect_back = rect.copy().set_stroke(C_WHITE, width=rect.get_stroke_width() + 8)
@@ -287,7 +287,7 @@ class PresentationScene(MovingCameraScene):
             group = Group(background, text)
             return group
 
-        background_fade = Rectangle(C_WHITE, 100, 100).set_fill(C_WHITE, opacity=0.95)
+        background_fade = Rectangle(C_WHITE, 100, 100).set_fill(C_WHITE, opacity=0.92)
         background_fade.set_z_index(1)
         self.add(background_fade)
 
@@ -321,7 +321,7 @@ class PresentationScene(MovingCameraScene):
     def animate_slide_dirichlet_demonstration(self):
         self.pause("Start dirichlet_demonstration")
 
-        title_tex = self.create_title("Example Problem")
+        title_tex = self.create_title("Example")
         self.play(
             FadeIn(title_tex),
             run_time=0.6
@@ -2759,7 +2759,51 @@ class PresentationScene(MovingCameraScene):
         self.clear(run_time=0.6)
 
     def animate_slide_contribution_basics(self):
-        pass
+        title_tex = self.create_title("The Essentials")
+        self.play(
+            FadeIn(title_tex),
+            run_time=0.6
+        )
+        self.pause("Show title")
+
+        code_diagram = self.create_code_diagram(
+            "Sampling",
+            "Clustering",
+            "Connecting",
+            "",
+            "Smoothing",
+            "",
+            "Triangulating",
+            "Prolonging",
+        )
+        code_diagram.move_to(ORIGIN)
+        self.play(
+            FadeIn(code_diagram, shift=UP),
+            run_time=0.6
+        )
+        self.pause("Show code diagram")
+
+        self.play(
+            *[group[0][0][0].animate.set_fill(lerp(C_WHITE, C_GREEN, 0.5)).set_stroke(C_GREEN) for group in code_diagram[:4]],
+            run_time=0.4
+        )
+        self.pause("Show trivial stages")
+
+        self.play(
+            code_diagram[4][0][0][0].animate.set_fill(lerp(C_WHITE, C_BLUE, 0.5)).set_stroke(C_BLUE),
+            run_time=0.6
+        )
+        self.pause("Highlight \"Triangulating\"")
+
+        self.pause("Rename to \"Tetrahedralizing\"")
+
+        self.pause()
+
+        self.play(
+            code_diagram[5][0][0][0].animate.set_fill(lerp(C_WHITE, C_BLUE, 0.5)).set_stroke(C_BLUE),
+            run_time=0.6
+        )
+        self.pause("")
 
     def animate_slide_experiments(self):
         pass
@@ -2796,27 +2840,27 @@ class PresentationScene(MovingCameraScene):
     ###################################
 
     def animate(self):
-        self.animate_slide_first_page()
+        # self.animate_slide_first_page()
 
-        self.animate_slide_problem_summary() #TODO
+        # self.animate_slide_problem_summary() #TODO
 
-        self.animate_slide_dirichlet_demonstration()
-        self.animate_slide_multigrid_diagram()
-        self.animate_slide_prolongation_demonstration()
-        self.animate_slide_gravo_demonstration()
-        self.animate_slide_tetrahedral_meshes()
+        # self.animate_slide_dirichlet_demonstration()
+        # self.animate_slide_multigrid_diagram()
+        # self.animate_slide_prolongation_demonstration()
+        # self.animate_slide_gravo_demonstration()
+        # self.animate_slide_tetrahedral_meshes()
 
         self.animate_slide_contribution_basics() #TODO
-        self.animate_slide_experiments() #TODO
-        self.animate_slide_optimization_1_vertex_ordering() #TODO
-        self.animate_slide_optimization_2_sampling_density() #TODO
-        self.animate_slide_optimization_3_pit_prevention() #TODO
-        self.animate_slide_optimization_4_boundary_aware_smoothing() #TODO
-        self.animate_slide_optimization_5_parallelization() #TODO
-        self.animate_slide_experiment_revised() #TODO
+        # self.animate_slide_experiments() #TODO
+        # self.animate_slide_optimization_1_vertex_ordering() #TODO
+        # self.animate_slide_optimization_2_sampling_density() #TODO
+        # self.animate_slide_optimization_3_pit_prevention() #TODO
+        # self.animate_slide_optimization_4_boundary_aware_smoothing() #TODO
+        # self.animate_slide_optimization_5_parallelization() #TODO
+        # self.animate_slide_experiment_revised() #TODO
 
-        self.animate_slide_summary_conclusion() #TODO
-        self.animate_slide_last_page() #TODO
+        # self.animate_slide_summary_conclusion() #TODO
+        # self.animate_slide_last_page() #TODO
 
 if __name__ == "__main__":
     exit_code = render_slides()
