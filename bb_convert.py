@@ -20,14 +20,15 @@ def convert():
 
     pages = []
 
-    for idx, frames in enumerate(read_output_videos(verbose=True)):
+    video_nr = 0
+    for frames in read_output_videos(verbose=True):
         if height is None:
             height, width, _ = frames[0].shape
 
         pages.append(Image.fromarray(cv2.cvtColor(frames[-1], cv2.COLOR_BGR2RGB)))
 
         cv2.imwrite(THUMBNAIL_FILENAME, frames[0])
-        video_writer = cv2.VideoWriter(VIDEO_FILENAME, cv2.VideoWriter_fourcc(*"mp4v"), DEFAULT_FRAMERATE, (width, height))
+        video_writer = cv2.VideoWriter(VIDEO_FILENAME, cv2.VideoWriter_fourcc(*"mp4v"), FINAL_FRAMERATE, (width, height))
         for frame in frames:
             video_writer.write(frame)
         video_writer.release()
@@ -39,7 +40,9 @@ def convert():
         timing = [el for el in tree.iterdescendants() if etree.QName(el).localname == "cond"][0]
         timing.set("delay", "0")
 
-        print(f"\033[30;1mProcessed video #{idx + 1}\033[0m")
+        print(f"\033[30;1mProcessed video #{video_nr + 1}\033[0m")
+
+        video_nr += 1
 
     pages[0].save(f"{PATH}/output.pdf", "PDF", resolution=100.0, save_all=True, append_images=pages[1:])
 

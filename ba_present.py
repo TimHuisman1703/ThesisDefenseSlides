@@ -6,15 +6,16 @@ import time
 
 from x_utils import *
 
-DEBUG = False
-
-WINDOW_NAME = "Thesis Defense"
+FINAL = True
 FULLSCREEN = False
 MOUSE_CONTROLLED = True
 
 LOOK_BACK = 5
 LOOK_AHEAD = 15
 MARGIN = 5
+VERBOSE = True
+
+WINDOW_NAME = "Thesis Defense"
 
 black_screen = np.zeros((1, 1, 3))
 
@@ -23,7 +24,7 @@ last_frames = {}
 
 def load_video(video_nr):
     loaded_videos[video_nr] = []
-    loaded_videos[video_nr] = read_output_video(video_nr, verbose=True)
+    loaded_videos[video_nr] = read_output_video(video_nr, verbose=VERBOSE)
 
 def load_video_range(video_nr, look_back=LOOK_BACK, look_ahead=LOOK_AHEAD, margin=MARGIN):
     indices = [*range(video_nr, video_nr + look_ahead + 1), *range(video_nr - 1, video_nr - look_back, -1)]
@@ -42,26 +43,20 @@ def load_video_range(video_nr, look_back=LOOK_BACK, look_ahead=LOOK_AHEAD, margi
 def load_last_pages():
     global last_frames
 
-    video_nr = 1
-    while os.path.exists(path_directory := f"{OUTPUT_PATH}/{video_nr:06}"):
-        a, b = 0, 1
-        while os.path.exists(f"{path_directory}/{b:04}.png"):
-            b <<= 1
+    f = open(PATH_FRAME_COUNTS)
+    frame_counts = [int(j) for j in f.read().split(",")]
+    f.close()
 
-        while a != b:
-            mid = (a + b + 1) // 2
-            if os.path.exists(f"{path_directory}/{mid:04}.png"):
-                a = mid
-            else:
-                b = mid - 1
-
-        last_frames[video_nr] = cv2.imread(f"{path_directory}/{a:04}.png")
-        video_nr += 1
+    last_frames.clear()
+    for video_nr in range(1, len(frame_counts)):
+        path_src = f"{PATH_OUTPUT}/{video_nr:06}/{frame_counts[video_nr] - 1:04}.png"
+        if os.path.exists(path_src):
+            last_frames[video_nr] = cv2.imread(path_src)
 
 def present(framerate, fullscreen, mouse_controlled):
     global loaded_videos
 
-    num_videos = len(os.listdir(OUTPUT_PATH))
+    num_videos = sum(os.path.isdir(f"{PATH_OUTPUT}/{name}") for name in os.listdir(PATH_OUTPUT))
 
     thread = Thread(target=load_last_pages)
     thread.start()
@@ -106,7 +101,8 @@ def present(framerate, fullscreen, mouse_controlled):
             frame_nr_prev = -1
             time_since_last_flip = time.time()
             loaded_video_range = False
-            print(f"\033[34;1mShowing video #{video_nr}\033[0m")
+            if VERBOSE:
+                print(f"\033[34;1mShowing video #{video_nr}\033[0m")
         video_nr_prev = video_nr
 
         video = loaded_videos.get(video_nr, [])
@@ -122,7 +118,8 @@ def present(framerate, fullscreen, mouse_controlled):
 
         if not loaded_video_range and time.time() - time_since_last_flip > 0.2:
             loaded_video_range = True
-            print("\033[30mLoading...\033[0m")
+            if VERBOSE:
+                print("\033[30mLoading...\033[0m")
             load_video_range(video_nr)
 
         key = cv2.waitKey(1)
@@ -160,7 +157,7 @@ def present(framerate, fullscreen, mouse_controlled):
 
 if __name__ == "__main__":
     present(
-        DEBUG_FRAMERATE if DEBUG else DEFAULT_FRAMERATE,
+        FINAL_FRAMERATE if FINAL else DEBUG_FRAMERATE,
         FULLSCREEN,
         True
     )
