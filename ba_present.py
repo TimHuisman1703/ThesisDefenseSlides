@@ -7,7 +7,7 @@ import time
 from x_utils import *
 
 FINAL = True
-FULLSCREEN = False
+FULLSCREEN = True
 MOUSE_CONTROLLED = True
 
 LOOK_BACK = 5
@@ -116,7 +116,7 @@ def present(framerate, fullscreen, mouse_controlled):
             if frame_nr == len(video) - 1:
                 gc.collect()
 
-        if not loaded_video_range and time.time() - time_since_last_flip > 0.2:
+        if not loaded_video_range and time.time() - time_since_last_flip > 0.5:
             loaded_video_range = True
             if VERBOSE:
                 print("\033[30mLoading...\033[0m")

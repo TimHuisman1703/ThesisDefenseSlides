@@ -71,7 +71,7 @@ class InvitationScene(Scene):
             .scale(0.9).move_to(ORIGIN).shift(UP * 1.6)
         invite_text = add_text("Heya! I would like to invite you to my defense, where I'll be bravely defending my work titled", color=C_DARK_GRAY) \
             .scale(0.4).next_to(title_text, UP).shift(DOWN * 0.1)
-        dont_worry_text = add_text("Don't worry, I'll bring visuals to\nexplain what these words means...", color=C_GRAY) \
+        dont_worry_text = add_text("Don't worry, I'll bring visuals to\nexplain what these words mean...", color=C_GRAY) \
             .scale(0.3).align_to(title_text, DOWN + RIGHT)
         author_text = add_text("MSc Thesis Defense - Tim Huisman", color=C_DARK_GRAY) \
             .scale(0.6).next_to(title_text, DOWN).align_to(title_text, LEFT)
@@ -93,7 +93,7 @@ class InvitationScene(Scene):
         however_text = add_text("but if possible, I would love to see you there in person! :)", color=C_DARK_GRAY) \
             .scale(0.6).next_to(online_text, DOWN).shift(UP * 0.12)
 
-        all_text_group.move_to(ORIGIN)
+        all_text_group.move_to(ORIGIN).scale_to_fit_height(6.8)
         self.add(all_text_group)
 
         eemcs = self.load_image("eemcs").scale_to_fit_height(1.2).next_to(where_text, RIGHT).align_to(where_sub_text, DOWN).shift(np.array([0.2, -0.1, 0.0]))

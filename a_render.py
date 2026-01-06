@@ -47,10 +47,17 @@ def render_slides():
     print("\033[34;1mWriting frames...\033[0m")
 
     filenames = os.listdir(PATH_RENDER)
+    filenames_indexed = []
+    for filename in filenames:
+        nr = int("".join(c for c in filename if c.isdigit()))
+        filenames_indexed.append((nr, filename))
+    filenames_indexed = sorted(filenames_indexed)
+    filenames = [pair[1] for pair in sorted(filenames_indexed)]
+
     video_nr = 1
     frame_nr = 0
     frame_counts = {}
-    for filename in os.listdir(PATH_RENDER):
+    for filename in filenames:
         nr = int("".join(c for c in filename if c.isdigit()))
         if nr % 100 == 0:
             print(f"\033[30;1m  {nr}/{len(filenames)}")
@@ -400,7 +407,7 @@ class PresentationScene(MovingCameraScene):
                 temperatures[iy][ix] = values[(iy + 1) * (n + 2) + (ix + 1)]
 
         spacing = size / n
-        margin = 0.02
+        margin = 0.01
 
         walls = [None] * 4
         a, b = spacing * n / 2 + 0.01, spacing * (n / 2 + 1) - 0.01
@@ -435,18 +442,22 @@ class PresentationScene(MovingCameraScene):
 
                 cell = Square(spacing - margin).round_corners(0.05).set_stroke(width=0).set_fill(C_LIGHT_GRAY, opacity=1)
                 cell.move_to((x, y, 0))
+                cell.set_z_index(2)
                 cells[iy][ix] = cell
 
                 cell_hot = Square(spacing - margin).round_corners(0.05).set_stroke(width=0).set_fill(C_ORANGE, opacity=1).set_opacity(temperature)
                 cell_hot.move_to((x, y, 0))
+                cell_hot.set_z_index(3)
                 cells_hot[iy][ix] = cell_hot
 
                 cell_cold = Square(spacing - margin).round_corners(0.05).set_stroke(width=0).set_fill(C_BLUE, opacity=1).set_opacity(-temperature)
                 cell_cold.move_to((x, y, 0))
+                cell_cold.set_z_index(3)
                 cells_cold[iy][ix] = cell_cold
 
                 question_mark = Tex("$\\textbf{?}$", color=C_DARK_GRAY)
                 question_mark.scale(0.8).move_to(cell)
+                question_mark.set_z_index(3)
                 question_marks[iy][ix] = question_mark
         cells_flat = [obj for row in cells for obj in row if obj]
         cells_hot_flat = [obj for row in cells_hot for obj in row if obj]
@@ -527,6 +538,7 @@ class PresentationScene(MovingCameraScene):
 
             temperature_texts[d] = MathTex(f"{val_to_deg(temperature):.1f}\\small{{^{{\\circ}}\\text{{C}}}}").scale(0.2)
             temperature_texts[d].move_to(cells[ny][nx])
+            temperature_texts[d].set_z_index(12)
 
             fade_in_animations.extend([
                 FadeIn(cells[ny][nx], scale=0),
@@ -544,6 +556,8 @@ class PresentationScene(MovingCameraScene):
         temperature_avg = sum(temps) / 4
         temperature_texts[4] = MathTex(f"{val_to_deg(temperature_avg):.1f}\\small{{^{{\\circ}}\\text{{C}}}}").scale(0.2)
         temperature_texts[4].move_to(cells[fy][fx])
+        temperature_texts[4].set_z_index(12)
+
         cells_hot[fy][fx].set_opacity(temperature_avg)
         cells_cold[fy][fx].set_opacity(-temperature_avg)
         to_move = []
@@ -554,15 +568,18 @@ class PresentationScene(MovingCameraScene):
 
             to_keep_in_front.append(cells[ny][nx])
             to_keep_in_front.append(cells_hot[ny][nx])
+            to_keep_in_front.append(cells_cold[ny][nx])
             to_keep_in_front.append(temperature_texts[d])
 
-            cell_hot_copy = cells_hot[ny][nx].copy()
-            cell_hot_copy.generate_target()
-            cell_hot_copy.target.move_to(cells[fy][fx])
-            cell_hot_copy.target.set_opacity(0)
-            to_move.append(cell_hot_copy)
+            for cs in [cells_hot, cells_cold]:
+                c_copy = cs[ny][nx].copy()
+                c_copy.generate_target()
+                c_copy.target.move_to(cells[fy][fx])
+                c_copy.target.set_opacity(0)
+                to_move.append(c_copy)
 
-        self.add_foreground_mobjects(*to_keep_in_front)
+        for obj in to_keep_in_front:
+            obj.set_z_index(obj.get_z_index() + 50)
         self.play(
             *[MoveToTarget(obj) for obj in to_move],
             FadeIn(cells_hot[fy][fx]),
@@ -571,7 +588,8 @@ class PresentationScene(MovingCameraScene):
             FadeIn(temperature_texts[4], scale=0),
             run_time=0.8
         )
-        self.remove_foreground_mobjects(*to_keep_in_front)
+        for obj in to_keep_in_front:
+            obj.set_z_index(obj.get_z_index() - 50)
         self.remove(*to_move)
         self.pause("Take average heat")
 
@@ -596,7 +614,7 @@ class PresentationScene(MovingCameraScene):
         )
         self.pause("Show neighbor outlines")
 
-        system_container = Rectangle(C_GRAY, 1.2, 0.8).set_stroke(width=1.2).set_fill(C_WHITE, opacity=1)
+        system_container = Rectangle(C_GRAY, 1.05, 0.8).set_stroke(width=1.2).set_fill(C_WHITE, opacity=1)
         system_container.move_to(camera_shift_1).shift((-1.2, 0.0, 0.0))
         system_container.set_z_index(20)
         equation_tex = MathTex("x", "={", "y", "+", "y", "+", "y", "+", "y", "\\over 4}").set_fill(C_BLACK).scale(0.16)
@@ -748,7 +766,7 @@ class PresentationScene(MovingCameraScene):
         )
         self.pause("Add many more equations")
 
-        camera_shift_2 = LEFT * 2.4
+        camera_shift_2 = LEFT * 1.8
 
         system_group = Group(system_container, *equations_tex)
         for row in equations_cells:
@@ -783,7 +801,7 @@ class PresentationScene(MovingCameraScene):
         self.pause("Put camera back, make all cells appear")
 
         self.play(
-            system_group.animate.shift(DOWN * 0.8),
+            system_group.animate.shift(DOWN * 0.3),
             run_time=0.6
         )
         matrix_equation_tex = Tex("$A\\mathbf{x} = \\mathbf{b}$", color=C_BLACK).scale(1.2)
@@ -795,10 +813,12 @@ class PresentationScene(MovingCameraScene):
         )
         self.pause("Show matrix equation")
 
+        # TODO: consider direct solve?
+
         title_tex_old = title_tex
         self.unfix(title_tex_old)
 
-        title_tex = self.create_title("Gauss-Seidel")
+        title_tex = self.create_title("Iterative Solving: Gauss-Seidel")
         self.into_frame(title_tex)
         self.play(
             FadeOut(title_tex_old),
@@ -809,28 +829,18 @@ class PresentationScene(MovingCameraScene):
         self.fix(title_tex, absolute=True)
         self.pause("Replace title")
 
-        self.play(
-            *[FadeOut(obj, scale=0) for obj in question_marks_flat],
-            run_time=0.6
-        )
-        self.pause("Initialize all at zero")
-
-        camera_zoom_3 = 6
-        camera_shift_3 = cells[-1][0].get_center()
-        self.play(
-            self.camera.frame.animate.shift(-camera_shift_2).scale(1 / camera_zoom_3).shift(camera_shift_3),
-            FadeIn(cells_boundary[1][0]),
-            FadeIn(cells_boundary[2][-1]),
-            run_time=1.6
-        )
-        self.pause("Zoom into top left")
-        self.remove(system_group)
-
+        np.random.seed(2)
         states = [
-            np.zeros((n + 2, n + 2), dtype=float)
+            np.array([[np.random.rand() * 2 - 1 for _ in range(n + 2)] for _ in range(n + 2)])
         ]
-        iterations = 100
-        iterations_to_show = [1, 2, 5, 20, 100] # TODO: Maybe show everything in between, without animation?
+        iterations_to_show = [
+            (1, 1, 0.8, smooth),
+            (2, 1, 0.6, smooth),
+            (5, 1, 0.25, lambda _: 1),
+            (20, 1 if FINAL else 2, 0.04 if FINAL else 0.08, lambda _: 1),
+            (50, 1 if FINAL else 4, 0.02 if FINAL else 0.08, lambda _: 1)
+        ]
+        iterations = max([j[0] for j in iterations_to_show])
         for obj in cells_cold_flat + cells_hot_flat:
             obj.set_opacity(0)
             self.add(obj)
@@ -845,6 +855,31 @@ class PresentationScene(MovingCameraScene):
                 for ix in range(n):
                     state[iy][ix] = 0.25 * sum(state[iy - (d == 0) + (d == 1)][ix - (d == 2) + (d == 3)] for d in range(4))
             states.append(state)
+
+        animations = []
+        for iy in range(n):
+            for ix in range(n):
+                animations.extend([
+                    cells_hot[iy][ix].animate.set_fill(opacity=states[0][iy][ix]),
+                    cells_cold[iy][ix].animate.set_fill(opacity=-states[0][iy][ix]),
+                ])
+        self.play(
+            *[FadeOut(obj, scale=0) for obj in question_marks_flat],
+            *animations,
+            run_time=0.6
+        )
+        self.pause("Initialize randomly")
+
+        camera_zoom_3 = 6
+        camera_shift_3 = cells[-1][0].get_center()
+        self.play(
+            self.camera.frame.animate.shift(-camera_shift_2).scale(1 / camera_zoom_3).shift(camera_shift_3),
+            FadeIn(cells_boundary[1][0]),
+            FadeIn(cells_boundary[2][-1]),
+            run_time=1.6
+        )
+        self.pause("Zoom into top left")
+        self.remove(system_group)
 
         amount = 6
         for idx in range(amount):
@@ -865,6 +900,7 @@ class PresentationScene(MovingCameraScene):
                 else:
                     objs.append(cells[ny][nx])
                     objs.append(cells_hot[ny][nx])
+                    objs.append(cells_cold[ny][nx])
                 for obj in objs:
                     to_keep_in_front.append(obj)
                     obj_moving = obj.copy()
@@ -874,14 +910,16 @@ class PresentationScene(MovingCameraScene):
                     obj_moving.target.set_opacity(0)
                     to_move.append(obj_moving)
 
-            self.add_foreground_mobjects(*to_keep_in_front)
+            for obj in to_keep_in_front:
+                obj.set_z_index(obj.get_z_index() + 50)
             self.play(
                 *[MoveToTarget(obj) for obj in to_move],
                 cells_hot[fy][fx].animate.set_opacity(states[1][fy][fx]),
                 cells_cold[fy][fx].animate.set_opacity(-states[1][fy][fx]),
                 run_time=0.8 if idx < 2 else 0.6
             )
-            self.remove_foreground_mobjects(*to_keep_in_front)
+            for obj in to_keep_in_front:
+                obj.set_z_index(obj.get_z_index() - 50)
             self.remove(*to_move)
             if idx < 2:
                 self.pause(f"Perform first GS at cell {idx}")
@@ -924,38 +962,48 @@ class PresentationScene(MovingCameraScene):
         self.pause("Put camera back again")
 
         iteration_counter_text = None
-        for it in iterations_to_show:
-            iteration_counter_text_new = MathTex(f"{it}", "\\text{ iteration}", "\\text{s}", color=C_DARK_GRAY)
-            if it == 1:
-                iteration_counter_text_new[-1].set_color(C_WHITE)
-            iteration_counter_text_new.scale(0.8).next_to(walls[3], UP).shift(DOWN * 0.04)
-            text_animations = []
-            if iteration_counter_text is None:
-                text_animations.append(FadeIn(iteration_counter_text_new, scale=0.8))
-            else:
-                text_animations.append(TransformMatchingTex(iteration_counter_text, iteration_counter_text_new))
+        it = 0
+        for goal, step_size, run_time, func in iterations_to_show:
+            while it < goal:
+                it = min(goal, it + step_size)
 
-            color_animations = ([
-                cells_hot[jy][jx].animate.set_opacity(states[it][jy][jx])
-                for jy in range(n) for jx in range(n)
-            ] + [
-                cells_cold[jy][jx].animate.set_opacity(-states[it][jy][jx])
-                for jy in range(n) for jx in range(n)
-            ])
+                iteration_counter_text_new = MathTex(f"{it}", "\\text{ iteration}", "\\text{s}", color=C_DARK_GRAY)
+                if goal == 1:
+                    iteration_counter_text_new[-1].set_color(C_WHITE)
+                iteration_counter_text_new.scale(0.8).next_to(walls[3], UP).shift(DOWN * 0.04)
+                text_animations = []
+                if it == 1:
+                    text_animations.append(FadeIn(iteration_counter_text_new, scale=0.8))
+                else:
+                    text_animations.append(TransformMatchingTex(iteration_counter_text, iteration_counter_text_new))
 
-            self.play(
-                *text_animations,
-                *color_animations,
-                run_time=0.4
-            )
+                color_animations = [
+                    cells_hot[jy][jx].animate.set_opacity(states[it][jy][jx])
+                    for jy in range(n) for jx in range(n)
+                ] + [
+                    cells_cold[jy][jx].animate.set_opacity(-states[it][jy][jx])
+                    for jy in range(n) for jx in range(n)
+                ]
+
+                self.play(
+                    *text_animations,
+                    *color_animations,
+                    run_time=run_time,
+                    rate_func=func
+                )
+
+                iteration_counter_text = iteration_counter_text_new
+
             self.pause(f"Show state {it}")
-
-            iteration_counter_text = iteration_counter_text_new
 
         walls_big = [obj.copy().set_fill(opacity=0) for obj in walls]
 
         cells_big = [[None] * (n // 2) for _ in range(n // 2)]
         cells_big_flat = []
+        cells_hot_big = [[None] * (n // 2) for _ in range(n // 2)]
+        cells_hot_big_flat = []
+        cells_cold_big = [[None] * (n // 2) for _ in range(n // 2)]
+        cells_cold_big_flat = []
         for iy in range(n // 2):
             for ix in range(n // 2):
                 x = size * (2 * (ix + 0.5) / n - 0.5)
@@ -963,25 +1011,24 @@ class PresentationScene(MovingCameraScene):
 
                 cell_big = Square(2 * spacing - margin).round_corners(0.05).set_stroke(width=0).set_fill(C_LIGHT_GRAY, opacity=0)
                 cell_big.move_to((x, y, 0))
-                cells[iy][ix] = cell_big
-
                 cells_big[iy][ix] = cell_big
                 cells_big_flat.append(cell_big)
 
-        camera_shift_5 = np.array([4.4, 0.4, 0.0])
-        camera_zoom_5 = 0.8
-        self.play(
-            *[obj.animate.set_fill(opacity=1).shift((2 * camera_shift_5[0]) * RIGHT) for obj in cells_big_flat],
-            *[obj.animate.set_fill(opacity=1).shift((2 * camera_shift_5[0]) * RIGHT) for obj in walls_big],
-            self.camera.frame.animate.scale(1 / camera_zoom_5).shift(camera_shift_5),
-            run_time=1.2
-        )
-        self.pause("Show bigger grid")
+                cell_hot = cell_big.copy().set_fill(C_ORANGE, opacity=0)
+                cell_hot.set_z_index(cell_hot.get_z_index() + 1)
+                cells_hot_big[iy][ix] = cell_hot
+                cells_hot_big_flat.append(cell_hot)
 
+                cell_cold = cell_big.copy().set_fill(C_BLUE, opacity=0)
+                cell_cold.set_z_index(cell_cold.get_z_index() + 1)
+                cells_cold_big[iy][ix] = cell_cold
+                cells_cold_big_flat.append(cell_cold)
+
+        np.random.seed(0)
         states_big = [
-            np.zeros((n // 2 + 2, n // 2 + 2), dtype=float)
+            np.array([[np.random.rand() * 2 - 1 for _ in range(n // 2 + 2)] for _ in range(n // 2 + 2)])
         ]
-        iterations_big = 8
+        iterations_big = 10
         for i in range(n // 2):
             states_big[0][-1][i] = 0.0
             states_big[0][n // 2][i] = 1.0
@@ -994,22 +1041,30 @@ class PresentationScene(MovingCameraScene):
                     state_big[iy][ix] = 0.25 * sum(state_big[iy - (d == 0) + (d == 1)][ix - (d == 2) + (d == 3)] for d in range(4))
             states_big.append(state_big)
 
-        cells_hot_big = [[None] * (n // 2) for _ in range(n // 2)]
-        cells_hot_big_flat = []
-        cells_cold_big = [[None] * (n // 2) for _ in range(n // 2)]
-        cells_cold_big_flat = []
+        camera_shift_5 = np.array([4.4, 0.4, 0.0])
+        camera_zoom_5 = 0.8
+
+        animations = []
         for iy in range(n // 2):
             for ix in range(n // 2):
-                cell_hot = cells_big[iy][ix].copy().set_fill(C_ORANGE, opacity=0)
-                cell_hot.set_z_index(cell_hot.get_z_index() + 1)
-                cells_hot_big[iy][ix] = cell_hot
-                cells_hot_big_flat.append(cell_hot)
+                cells_hot_big[iy][ix].set_fill(opacity=states_big[0][iy][ix])
+                animations.append(
+                    cells_hot_big[iy][ix].animate.set_fill(opacity=states_big[0][iy][ix]).shift((2 * camera_shift_5[0]) * RIGHT)
+                )
 
-                cell_cold = cells_big[iy][ix].copy().set_fill(C_BLUE, opacity=0)
-                cell_cold.set_z_index(cell_cold.get_z_index() + 1)
-                cells_cold_big[iy][ix] = cell_cold
-                cells_cold_big_flat.append(cell_cold)
-        self.add(*cells_hot_big_flat, *cells_cold_big_flat)
+                cells_cold_big[iy][ix].set_fill(opacity=-states_big[0][iy][ix])
+                animations.append(
+                    cells_cold_big[iy][ix].animate.set_fill(opacity=-states_big[0][iy][ix]).shift((2 * camera_shift_5[0]) * RIGHT)
+                )
+
+        self.play(
+            *[obj.animate.set_fill(opacity=1).shift((2 * camera_shift_5[0]) * RIGHT) for obj in cells_big_flat],
+            *animations,
+            *[obj.animate.set_fill(opacity=1).shift((2 * camera_shift_5[0]) * RIGHT) for obj in walls_big],
+            self.camera.frame.animate.scale(1 / camera_zoom_5).shift(camera_shift_5),
+            run_time=1.2
+        )
+        self.pause("Show bigger grid")
 
         iteration_counter_big_text = None
         indices = sorted(range(len(cells_big_flat)), key=lambda x: (x % (n // 2)) + -(x // (n // 2)))
@@ -1028,7 +1083,7 @@ class PresentationScene(MovingCameraScene):
             iteration_counter_big_text = iteration_counter_big_text_new
             self.add(iteration_counter_big_text)
 
-            self.hold(0.2)
+            self.hold(0.15)
         self.pause(f"Relax the big grid for {iterations_big} iterations")
 
         plus_rectangle_1 = Rectangle(C_DARK_GRAY, 1.2, 0.2).set_stroke(opacity=0).set_fill(opacity=1).shift(camera_shift_5)
@@ -2205,7 +2260,7 @@ class PresentationScene(MovingCameraScene):
 
         cluster_polygons = []
         for i, cluster in enumerate(clusters):
-            color = lerp(C_WHITE, cluster_colors[i], 0.35)
+            color = lerp(C_WHITE, cluster_colors[i], 0.25)
 
             polygons = Group()
             drawn = set()
@@ -2550,10 +2605,10 @@ class PresentationScene(MovingCameraScene):
         )
         self.pause("Highlight prolongation triangle")
 
-        cluster_colors = [C_RED, C_ORANGE, C_PURPLE]
-        light_colors = [lerp(C_WHITE, color, 0.35) for color in cluster_colors]
+        area_colors = [C_RED, C_ORANGE, C_PURPLE]
+        light_colors = [lerp(C_WHITE, color, 0.35) for color in area_colors]
         self.play(
-            *[vertices_coarse[idx].animate.set_fill(cluster_colors[j]) for j, idx in enumerate(Tc[0])],
+            *[vertices_coarse[idx].animate.set_fill(area_colors[j]) for j, idx in enumerate(Tc[0])],
             run_time=0.4
         )
         self.pause("Highlight prolongation vertices")
@@ -3104,7 +3159,7 @@ class PresentationScene(MovingCameraScene):
             fade_animations = []
             unradius_animations = []
 
-            boundary_colors = [C_GRAY, C_BLUE, C_GREEN, C_ORANGE]
+            boundary_colors = [C_GRAY, C_BLUE, C_GREEN]
             boundary = [0] * len(vertices_fine)
             if it == 1:
                 boundary = [sum(abs(float(c)) > 0.99 for c in ps[j]) for j in range(len(vertices_fine))]
@@ -3120,9 +3175,9 @@ class PresentationScene(MovingCameraScene):
                 self.pause("Flash boundary")
 
                 order_circles = []
-                for i in range(4):
-                    circle = Circle(0.3).set_stroke(opacity=0).set_fill(boundary_colors[3 - i], opacity=1)
-                    circle.shift(3.0 * (i - 1.5) * RIGHT).to_edge(DOWN)
+                for i in range(len(boundary_colors)):
+                    circle = Circle(0.3).set_stroke(opacity=0).set_fill(boundary_colors[len(boundary_colors) - 1 - i], opacity=1)
+                    circle.shift(3.0 * (i - (len(boundary_colors) - 1) / 2) * RIGHT).to_edge(DOWN)
                     order_circles.append(circle)
 
                 order_arrows = []
@@ -3257,7 +3312,7 @@ class PresentationScene(MovingCameraScene):
 
             if it == 1:
                 to_connect = to_connect \
-                    - {(7, 12)} \
+                    - {(4, 9)} \
                     | {(2, 9), (1, 10)}
 
             edges_coarse = []
@@ -3459,7 +3514,7 @@ class PresentationScene(MovingCameraScene):
         self.pause("Highlight boundary")
 
         self.play(
-            *[obj.animate.scale(1.35).set_fill(lerp(C_BLACK, obj.get_fill_color(), 0.5)) for obj in vertices_fine[1:4]],
+            *[obj.animate.scale(1.35) for obj in vertices_fine[1:4]],
             run_time=0.4
         )
         self.pause("Sample points")
@@ -3483,7 +3538,7 @@ class PresentationScene(MovingCameraScene):
             (2, 4, 6),
             (3, 7, 5),
         ]):
-            color = lerp(C_WHITE, cluster_colors[i], 0.35)
+            color = lerp(C_WHITE, cluster_colors[i], 0.25)
             color = [color] * 2 + [C_WHITE] * (2 + (i > 0))
 
             va, vb, vc = [vertices_fine[j].get_center() for j in (a, b, c)]
@@ -3550,14 +3605,7 @@ class PresentationScene(MovingCameraScene):
                     )
                 self.pause("Disapprove of down arrow")
 
-                arrow_up = Arrow(stroke_width=12).put_start_and_end_on(
-                    vertices_fine[1].get_center() + DOWN * 0.1,
-                    vertices_fine[0].get_center() + UP * 0.1
-                ).set_stroke(gradient).set_fill(C_BLUE).set_sheen_direction(DOWN)
-                arrow_up.shift(LEFT * 0.5)
-                arrow_up.set_z_index(30)
-
-                checkmark = Group(
+                checkmark_template = Group(
                     Group(
                         Line(np.array([0, 1 / 2, 0]), np.array([1 / 3, 0, 0])).set_stroke(C_WHITE, width=12).set_z_index(34),
                         Line(np.array([0, 1 / 2, 0]), np.array([1 / 3, 0, 0])).set_stroke(C_GREEN, width=8).set_z_index(35)
@@ -3567,39 +3615,84 @@ class PresentationScene(MovingCameraScene):
                         Line(np.array([1 / 3, 0, 0]), np.array([1, 1, 0])).set_stroke(C_GREEN, width=8).set_z_index(35)
                     )
                 ).scale_to_fit_height(0.4)
-                checkmark.move_to(arrow_up).shift(LEFT * 0.4)
+
+                arrows_side = []
+                checkmarks = []
+                for i in range(2):
+                    start = vertices_fine[0].get_center()
+                    end = vertices_fine[2 + i].get_center()
+
+                    para = end - start
+                    para /= np.linalg.norm(para)
+                    perp = np.array([-para[1], para[0], 0.0])
+                    if i == 0:
+                        perp *= -1
+                    mid = (start + end) / 2
+                    length = arrow_down.get_length()
+
+                    arrow_side = Arrow(max_stroke_width_to_length_ratio=100).put_start_and_end_on(
+                        mid - para * (length / 2),
+                        mid + para * (length / 2)
+                    ).set_stroke(C_BLUE).set_fill(C_BLUE)
+                    arrow_side.shift(perp * 0.5)
+                    arrow_side.set_z_index(30)
+                    arrows_side.append(arrow_side)
+
+                    checkmark = checkmark_template.copy()
+                    checkmark.move_to(arrow_side).shift(perp * 0.4)
+                    checkmarks.append(checkmark)
+
+                self.play(
+                    *[self.create_arrow(obj) for obj in arrows_side],
+                    run_time=0.6
+                )
+                self.hold(0.2)
+                for group_0, group_1 in zip(checkmarks[0], checkmarks[1]):
+                    self.play(
+                        *[Create(obj) for obj in group_0],
+                        *[Create(obj) for obj in group_1],
+                        run_time=0.2
+                    )
+                self.pause("Draw side arrows")
+
+                arrow_up = Arrow(stroke_width=12).put_start_and_end_on(
+                    vertices_fine[1].get_center() + DOWN * 0.1,
+                    vertices_fine[0].get_center() + UP * 0.1
+                ).set_stroke(gradient).set_fill(C_BLUE).set_sheen_direction(DOWN)
+                arrow_up.shift(LEFT * 0.5)
+                arrow_up.set_z_index(30)
+
+                checkmarks.append(checkmark_template.copy())
+                checkmarks[2].move_to(arrow_up).shift(LEFT * 0.4)
 
                 self.play(
                     self.create_arrow(arrow_up),
                     run_time=0.6
                 )
                 self.hold(0.2)
-                for group in checkmark:
+                for group in checkmarks[2]:
                     self.play(
                         *[Create(obj) for obj in group],
                         run_time=0.2
                     )
-                self.hold(1.6)
-                self.play(
-                    FadeOut(arrow_up),
-                    FadeOut(checkmark),
-                    run_time=0.6
-                )
                 self.pause("Approve of the other way")
 
                 self.play(
                     FadeOut(arrow_down),
+                    FadeOut(arrow_up),
+                    *[FadeOut(obj) for obj in arrows_side],
                     FadeOut(cross),
+                    *[FadeOut(obj) for obj in checkmarks],
                     run_time=0.6
                 )
 
-            start = vertices_fine[1 + it].get_center()
-            diff = vertices_fine[0].get_center() - start
-            cluster_extra = Line(start - diff * 0.1, start + diff).set_cap_style(CapStyleType.ROUND)
-            cluster_extra.set_stroke(lerp(C_WHITE, cluster_colors[it], 0.35), width=128)
+            start = vertices_fine[0].get_center()
+            diff = vertices_fine[1 + it].get_center() - start
+            cluster_extra = Line(start, start + 1.05 * diff).set_cap_style(CapStyleType.ROUND)
+            cluster_extra.set_stroke(lerp(C_WHITE, cluster_colors[it], 0.25), width=128)
             cluster_extra.set_z_index(2)
             self.play(
-                Create(cluster_extra),
+                self.create_arrow(cluster_extra),
                 run_time=0.6
             )
             self.pause("Draw extra cluster connection")
@@ -3664,7 +3757,10 @@ class PresentationScene(MovingCameraScene):
                 *appear_animations,
                 run_time=0.6
             )
-            self.pause("Draw all coarse edges")
+            if it == 0:
+                self.pause("Draw all coarse edges")
+            else:
+                self.hold(0.2)
 
             hole_polygon = Polygon(*Vc).set_stroke(opacity=0.0).set_fill([C_RED, C_GREEN][it], opacity=0.5)
             hole_polygon.set_z_index(4)
@@ -3674,17 +3770,15 @@ class PresentationScene(MovingCameraScene):
             )
             self.pause("Show hole")
 
-            if it:
-                break
-
-            self.play(
-                *[FadeOut(obj) for obj in edges_coarse],
-                FadeOut(hole_polygon),
-                FadeOut(cluster_extra),
-                [obj.animate.restore() for obj in to_restore],
-                run_time=0.8
-            )
-            self.pause("Restore scene")
+            if it == 0:
+                self.play(
+                    *[FadeOut(obj) for obj in edges_coarse],
+                    FadeOut(hole_polygon),
+                    FadeOut(cluster_extra),
+                    [obj.animate.restore() for obj in to_restore],
+                    run_time=0.8
+                )
+                self.pause("Restore scene")
 
         mg_positions = [np.array([4.8 * (min(1, j) - 0.5), -0.6 + 1.5 * ((j + 1) % 3 - 1), 0.0]) for j in range(3)]
         mg_images = [None] * 3
@@ -3730,6 +3824,462 @@ class PresentationScene(MovingCameraScene):
         self.fix(title_tex)
         self.pause("Show title")
 
+        nr = 40
+        dist = 0.45
+        ps = self.pseudo_uniform_points(
+            nr=nr,
+            dist=dist,
+            iterations=200,
+            seed=1
+        )
+
+        boundary_colors = [C_GRAY, C_BLUE, C_GREEN]
+        boundary = [sum(abs(float(c)) > 0.99 for c in ps[j]) for j in range(ps.shape[0])]
+
+        vertices_fine = []
+        for i, (x, y) in enumerate(ps):
+            vertex_fine = Circle(0.08).set_fill(boundary_colors[boundary[i]], opacity=1).set_stroke(opacity=0)
+            vertex_fine.move_to((x, y, 0))
+            vertex_fine.set_z_index(5)
+            vertices_fine.append(vertex_fine)
+        Group(*vertices_fine).scale_to_fit_height(5.0).move_to(0.2 * DOWN)
+
+        edges_fine = []
+        neighf = {idx: set() for idx in range(nr)}
+        for i in range(nr):
+            for j in range(i + 1, nr):
+                if np.linalg.norm(ps[i] - ps[j]) < dist * 1.05:
+                    edge_fine = Line(vertices_fine[i].get_center(), vertices_fine[j].get_center()).set_stroke(C_LIGHT_GRAY, width=12).set_cap_style(CapStyleType.ROUND)
+                    edge_fine.start_index = i
+                    edge_fine.end_index = j
+                    edge_fine.set_z_index(4)
+                    edges_fine.append(edge_fine)
+
+                    neighf[i].add(j)
+                    neighf[j].add(i)
+
+        self.play(
+            *[FadeIn(obj, scale=0.0) for obj in vertices_fine + edges_fine],
+            run_time=0.6
+        )
+        self.pause("Make domain appear")
+
+        r = 1.2
+
+        samples = []
+        vertices_coarse = []
+        removed = set()
+
+        to_sample = [*range(len(vertices_fine))]
+        np.random.seed(4)
+        np.random.shuffle(to_sample)
+        to_sample = sorted(to_sample, key=lambda x: -boundary[x])
+        for idx in to_sample:
+            if idx in removed:
+                continue
+            x, y, _ = vertices_fine[idx].get_center()
+            samples.append(idx)
+
+            vertex_fine = vertices_fine[idx]
+            vertex_coarse = vertex_fine.copy()
+            vertex_coarse.set_z_index(25)
+            vertices_coarse.append(vertex_coarse)
+            self.add(vertex_coarse)
+
+            for idx_n in range(len(vertices_fine)):
+                if np.linalg.norm(vertices_fine[idx].get_center() - vertices_fine[idx_n].get_center()) > r:
+                    continue
+                if idx_n in removed:
+                    continue
+                removed.add(idx_n)
+
+        code_diagram = self.create_code_diagram(
+            "Sampling",
+            "Clustering",
+            "Connecting",
+            "",
+            "Smoothing",
+            "",
+            "Tetrahedralizing",
+            "Prolonging",
+            z_index=80
+        )
+        code_diagram.move_to(ORIGIN).to_edge(LEFT).shift(0.2 * DOWN)
+        code_diagram.shift(LEFT * 4)
+        self.play(
+            code_diagram.animate.shift(RIGHT * 4),
+            run_time=0.6,
+            rate_func=rush_from
+        )
+        self.pause("Show code diagram")
+
+        sample_scale = 1.35
+        nonsample_scale = 0.8
+        self.play(
+            code_diagram[0][0][0][0].animate.set_stroke(C_ORANGE).set_fill(lerp(C_WHITE, C_ORANGE, 0.5)),
+            *[obj.animate.set_fill(lerp(C_WHITE, obj.get_fill_color(), 0.5)).set_stroke(opacity=0).scale(nonsample_scale) for obj in vertices_fine],
+            *[obj.animate.scale(sample_scale) for obj in vertices_coarse],
+            run_time=0.4
+        )
+
+        debug_indices = []
+        if not FINAL:
+            for i in range(len(vertices_coarse)):
+                debug_index = Text(f"{i}", color=C_RED)
+                debug_index.move_to(vertices_coarse[i])
+                debug_index.set_z_index(1000)
+                debug_indices.append(debug_index)
+        self.add(*debug_indices)
+        self.pause("Sample vertices")
+        self.remove(*debug_indices)
+
+        conn_r = 2.4
+        to_connect = set()
+        for i in range(len(vertices_coarse)):
+            v_i = vertices_coarse[i].get_center()
+            for j in range(i + 1, len(vertices_coarse)):
+                v_j = vertices_coarse[j].get_center()
+
+                if np.linalg.norm(v_j - v_i) < conn_r:
+                    to_connect.add((i, j))
+
+        to_connect = to_connect \
+            - {(4, 9)} \
+            | {(2, 9), (1, 10), (0, 6), (3, 5)}
+
+        edges_coarse = []
+        edges_coarse_boundary = []
+        for i, j in to_connect:
+            if np.random.rand() < 0.5:
+                i, j = j, i
+            v_i, v_j = vertices_coarse[i].get_center(), vertices_coarse[j].get_center()
+            edge_coarse = Line(v_i, v_j).set_stroke(lerp(C_LIGHT_GRAY, C_GRAY, 0.5), width=16).set_cap_style(CapStyleType.ROUND)
+            edge_coarse.start_index = i
+            edge_coarse.end_index = j
+            edge_coarse.set_z_index(24)
+            edges_coarse.append(edge_coarse)
+
+            if boundary[samples[i]] and boundary[samples[j]]:
+                edges_coarse_boundary.append(edge_coarse)
+
+        in_cluster = [-1] * len(vertices_fine)
+        for i_f in range(len(vertices_fine)):
+            dist_best = 1e10
+            for j_c, j_f in enumerate(samples):
+                if boundary[i_f] > boundary[j_f]:
+                    continue
+                dist = np.linalg.norm(vertices_fine[i_f].get_center() - vertices_fine[j_f].get_center())
+                if dist < dist_best:
+                    in_cluster[i_f] = j_c
+                    dist_best = dist
+
+        clusters = [[] for _ in range(max(in_cluster) + 1)]
+        for idx, c in enumerate(in_cluster):
+            clusters[c].append(idx)
+
+        cluster_polygons = []
+        for i, cluster in enumerate(clusters):
+            color = lerp(C_WHITE, boundary_colors[boundary[samples[i]]], 0.25)
+
+            polygons = Group()
+            drawn = set()
+            for a in cluster:
+                if len(cluster) == 1:
+                    dot = Circle(0.0).set_stroke(color, width=64).set_fill(color, opacity=1).set_cap_style(CapStyleType.ROUND)
+                    dot.move_to(vertices_fine[a].get_center())
+                    polygons.add(dot)
+
+                for b in [j for j in cluster if j in neighf[a]]:
+                    va, vb = [vertices_fine[j].get_center() for j in (a, b)]
+                    key = tuple(sorted([a, b]))
+                    if len(set(key)) == len(key) and key not in drawn:
+                        drawn.add(key)
+
+                        line = Line(va, vb).set_stroke(color, width=64).set_fill(color, opacity=1).set_cap_style(CapStyleType.ROUND)
+                        polygons.add(line)
+
+                    for c in [j for j in cluster if j in neighf[a] & neighf[b]]:
+                        key = tuple(sorted([a, b, c]))
+                        if len(set(key)) == len(key) and key not in drawn:
+                            drawn.add(key)
+
+                            vc = vertices_fine[c].get_center()
+                            eab, ebc = vb - va, vc - vb
+                            eab /= np.linalg.norm(eab)
+                            ebc /= np.linalg.norm(ebc)
+                            if np.linalg.norm(np.cross(eab, ebc)) < 1e-1:
+                                continue
+                            polygon = Polygon(va, vb, vc).set_stroke(color, width=64).set_fill(color, opacity=1).set_cap_style(CapStyleType.ROUND).round_corners(0.05)
+                            polygons.add(polygon)
+
+            for obj in polygons:
+                obj.generate_target()
+                obj.set_stroke(C_WHITE).set_fill(C_WHITE)
+            cluster_polygons.append(polygons)
+
+        connecting_edges = {}
+        for edge in edges_fine:
+            key = tuple(sorted(in_cluster[idx] for idx in [edge.start_index, edge.end_index]))
+            if key[0] != key[1]:
+                if key not in connecting_edges:
+                    connecting_edges[key] = []
+                connecting_edges[key].append(edge)
+
+        nonconnecting_edges = {*edges_fine}
+        for edges in connecting_edges.values():
+            nonconnecting_edges -= {*edges}
+
+        self.play(
+            code_diagram[0][0][0][0].animate.set_stroke(C_LIGHT_GRAY).set_fill(lerp(C_WHITE, C_LIGHT_GRAY, 0.5)),
+            code_diagram[1][0][0][0].animate.set_stroke(C_ORANGE).set_fill(lerp(C_WHITE, C_ORANGE, 0.5)),
+            *[MoveToTarget(obj) for group in cluster_polygons for obj in group],
+            *[FadeOut(obj) for obj in nonconnecting_edges],
+            run_time=0.4
+        )
+        debug_indices = []
+        if not FINAL:
+            for i in range(len(vertices_fine)):
+                debug_index = Text(f"{in_cluster[i]}", color=C_RED)
+                debug_index.move_to(vertices_fine[i])
+                debug_index.set_z_index(1000)
+                debug_indices.append(debug_index)
+        self.add(*debug_indices)
+        self.pause("Draw clusters")
+        self.remove(*debug_indices)
+
+        self.play(
+            code_diagram[1][0][0][0].animate.set_stroke(C_LIGHT_GRAY).set_fill(lerp(C_WHITE, C_LIGHT_GRAY, 0.5)),
+            code_diagram[2][0][0][0].animate.set_stroke(C_ORANGE).set_fill(lerp(C_WHITE, C_ORANGE, 0.5)),
+            *[obj.animate.set_stroke(opacity=0) for v in connecting_edges.values() for obj in v],
+            *[Create(obj) for obj in edges_coarse],
+            run_time=0.6
+        )
+        self.pause("Draw coarse edges")
+
+        self.play(
+            code_diagram[2][0][0][0].animate.set_stroke(C_LIGHT_GRAY).set_fill(lerp(C_WHITE, C_LIGHT_GRAY, 0.5)),
+            code_diagram[3][0][0][0].animate.set_stroke(C_ORANGE).set_fill(lerp(C_WHITE, C_ORANGE, 0.5)),
+            run_time=0.6
+        )
+        self.pause("Highlight Smoothing step")
+
+        for it in range(2):
+            to_restore = [
+                *vertices_coarse,
+                *edges_coarse,
+            ]
+            for obj in to_restore:
+                obj.save_state()
+
+            if it == 1:
+                to_shift = [
+                    *vertices_fine,
+                    *vertices_coarse,
+                    *edges_coarse,
+                    *cluster_polygons
+                ]
+                shift = 2.4 * LEFT
+                self.play(
+                    FadeOut(code_diagram, shift=shift),
+                    *[obj.animate.shift(shift) for obj in to_shift],
+                    run_time=0.6
+                )
+
+                spacing_vert = 1.25
+                spacing_hori = 1.25
+
+                clusters_small = []
+                vertices_small = []
+                molds_small = []
+                molds_to_delete_small = []
+                vertices_to_delete_small = []
+                for iy in range(3):
+                    for ix in range(3):
+                        color = lerp(C_WHITE, boundary_colors[iy], 0.35)
+                        cluster_small = Circle(0.0).set_stroke(color, width=96).set_fill(color, opacity=1)
+                        cluster_small.move_to(np.array([spacing_hori * -ix, spacing_vert * iy, 0.0]))
+                        cluster_small.set_z_index(4)
+                        clusters_small.append(cluster_small)
+
+                        color = lerp(C_WHITE, boundary_colors[ix], 0.65)
+                        vertex_small = vertices_fine[0].copy().set_fill(color).set_stroke(opacity=0)
+                        vertex_small.move_to(cluster_small)
+                        vertex_small.set_z_index(5)
+                        vertices_small.append(vertex_small)
+
+                        mold_small = vertex_small.copy().set_fill(opacity=0).set_stroke(color, opacity=1, width=8).scale(1.25 * sample_scale / nonsample_scale)
+                        mold_small.move_to(cluster_small)
+                        mold_small.set_z_index(5)
+                        molds_small.append(mold_small)
+
+                        if ix < iy:
+                            vertices_to_delete_small.append(vertex_small)
+                            molds_to_delete_small.append(mold_small)
+
+                cases_group = Group(*clusters_small, *vertices_small, *molds_small)
+                cases_group.move_to(np.array([3.6, -0.2, 0.0]))
+                self.play(
+                    FadeIn(cases_group, scale=0.8),
+                    run_time=0.6
+                )
+                self.pause("Show all cases")
+
+                scale = 1.5
+                self.play(
+                    *[obj.animate.scale(scale).set_stroke(C_RED) for obj in molds_to_delete_small],
+                    run_time=0.4
+                )
+                self.hold(0.8)
+                self.play(
+                    *[obj.animate.scale(1 / scale) for obj in molds_to_delete_small],
+                    run_time=0.4
+                )
+                self.pause("Highlight small molds to remove")
+
+                self.play(
+                    *[FadeOut(obj) for obj in molds_to_delete_small],
+                    *[FadeOut(obj) for obj in vertices_to_delete_small],
+                    run_time=0.6
+                )
+                self.pause("Remove small some molds")
+
+            Vc_new = [np.zeros((3,)) for _ in range(len(samples))]
+            Vc_new_num = [0] * len(samples)
+            for idx, vertex in enumerate(vertices_fine):
+                clu = in_cluster[idx]
+                if it and boundary[idx] < boundary[samples[clu]]:
+                    continue
+                Vc_new[clu] += vertex.get_center()
+                Vc_new_num[clu] += 1
+            Vc_new = np.array([p / n for p, n in zip(Vc_new, Vc_new_num)])
+
+            molds = []
+            molds_to_delete = []
+            vertices_to_delete = []
+            for idx, vertex_fine in enumerate(vertices_fine):
+                clu = in_cluster[idx]
+                vertex_coarse = vertices_coarse[clu]
+                color = lerp(C_WHITE, boundary_colors[boundary[idx]], 0.65)
+
+                vertex_fine.generate_target()
+                vertex_fine.target.set_fill(color)
+
+                mold = vertex_fine.copy().set_fill(opacity=0).set_stroke(color, opacity=1, width=8)
+                mold.scale(1.25 * sample_scale / nonsample_scale)
+                mold.set_z_index(50)
+                molds.append(mold)
+
+                mold.generate_target()
+                mold.target.set_stroke(boundary_colors[boundary[samples[clu]]])
+                mold.target.move_to(Vc_new[clu])
+ 
+                if it and boundary[idx] < boundary[samples[clu]]:
+                    mold.set_z_index(51)
+                    molds_to_delete.append(mold)
+                    vertices_to_delete.append(vertex_fine)
+
+            self.play(
+                *[MoveToTarget(obj) for obj in vertices_fine],
+                *[FadeIn(obj, scale=0) for obj in molds],
+                run_time=0.6
+            )
+            self.pause("Highlight fine points for averaging")
+
+            if molds_to_delete:
+                scale = 1.5
+                self.play(
+                    *[obj.animate.scale(scale).set_stroke(C_RED) for obj in molds_to_delete],
+                    run_time=0.4
+                )
+                self.hold(0.8)
+                self.play(
+                    *[obj.animate.scale(1 / scale) for obj in molds_to_delete],
+                    run_time=0.4
+                )
+                self.pause("Highlight molds to remove")
+
+                self.play(
+                    *[FadeOut(obj) for obj in molds_to_delete],
+                    *[FadeOut(obj) for obj in vertices_to_delete],
+                    run_time=0.6
+                )
+                self.pause("Remove some molds")
+
+                molds = [obj for obj in molds if obj not in molds_to_delete]
+
+            self.play(
+                *[MoveToTarget(obj) for obj in molds],
+                run_time=0.8
+            )
+            if it == 0:
+                self.pause("Average fine cluster points")
+            else:
+                self.hold(0.2)
+
+            self.play(
+                *[obj.animate.move_to(Vc_new[idx]) for idx, obj in enumerate(vertices_coarse)],
+                *[obj.animate.put_start_and_end_on(Vc_new[obj.start_index], Vc_new[obj.end_index]) for obj in edges_coarse],
+                run_time=0.8
+            )
+            self.play(
+                *[FadeOut(obj) for obj in molds],
+                run_time=0.4
+            )
+            if it == 0:
+                self.pause("Move coarse vertices")
+            else:
+                self.hold(0.2)
+
+            edges_coarse_boundary = sorted(edges_coarse_boundary, key=lambda e: np.atan2(*e.get_center()[:2]))
+            self.play(
+                AnimationGroup(
+                    *[obj.animate.set_stroke(C_DARK_GRAY, width=24) for obj in edges_coarse_boundary],
+                    lag_ratio=0.3
+                ),
+                run_time=0.8
+            )
+            self.pause("Highlight boundary")
+
+            if it == 0:
+                self.play(
+                    *[obj.animate.restore() for obj in to_restore],
+                    run_time=1.2
+                )
+                self.pause("Restore state")
+
+        mg_positions = [np.array([4.8 * (min(1, j) - 0.5), -0.6 + 1.5 * ((j + 1) % 3 - 1), 0.0]) for j in range(3)]
+        mg_images = [None] * 3
+        mg_arrows = [None] * 2
+        for i, name in enumerate(["0", "all_1", "none_1"]):
+            image = self.load_image(f"cube_mg_smoothing_{name}")
+            image.scale_to_fit_height(2.8)
+            image.move_to(mg_positions[i])
+            image.set_z_index(60)
+            mg_images[i] = image
+
+            if i:
+                start = mg_positions[0]
+                diff = mg_positions[i] - start
+                arrow = Arrow(color=C_DARK_GRAY).put_start_and_end_on(start + 0.35 * diff, start + 0.65 * diff)
+                arrow.set_z_index(60)
+                mg_arrows[i - 1] = arrow
+
+        white_rectangle = Rectangle(C_WHITE, SIZE[1] + 1, SIZE[0] + 1).set_fill(opacity=0.85)
+        white_rectangle.set_z_index(50)
+        self.play(
+            FadeIn(white_rectangle),
+            *[FadeIn(obj, shift=UP * 0.5) for obj in [*mg_images[:2], mg_arrows[0]]],
+            run_time=0.6
+        )
+        self.pause("Show all smoothing MG")
+
+        self.play(
+            *[FadeIn(obj, shift=UP * 0.5) for obj in [mg_images[2]]],
+            Transform(mg_arrows[0], mg_arrows[1]),
+            run_time=0.6
+        )
+        self.pause("Show boundary-aware smoothing MG")
+
         self.clear(run_time=0.6)
 
     def animate_slide_experiment_revised(self):
@@ -3773,13 +4323,13 @@ class PresentationScene(MovingCameraScene):
         self.animate_slide_gravo_demonstration()
         self.animate_slide_tetrahedral_meshes()
 
-        self.animate_slide_contribution_basics() # TODO
+        self.animate_slide_contribution_basics()
         self.animate_slide_experiments() # TODO
         self.animate_slide_boundary() # TODO
         self.animate_slide_optimization_1_vertex_ordering()
         self.animate_slide_optimization_2_sampling_density() # TODO
-        self.animate_slide_optimization_3_pit_prevention() # TODO
-        self.animate_slide_optimization_4_boundary_aware_smoothing() # TODO
+        self.animate_slide_optimization_3_pit_prevention()
+        self.animate_slide_optimization_4_boundary_aware_smoothing()
         self.animate_slide_experiment_revised() # TODO
 
         self.animate_slide_summary_conclusion() # TODO
