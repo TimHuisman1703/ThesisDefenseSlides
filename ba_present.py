@@ -13,7 +13,7 @@ MOUSE_CONTROLLED = True
 LOOK_BACK = 5
 LOOK_AHEAD = 15
 MARGIN = 5
-VERBOSE = True
+VERBOSE = False
 
 WINDOW_NAME = "Thesis Defense"
 
@@ -123,8 +123,10 @@ def present(framerate, fullscreen, mouse_controlled):
             load_video_range(video_nr)
 
         key = cv2.waitKey(1)
+        if VERBOSE and key != -1:
+            print(f"\033[30mPressed \033[36m{key}\033[0m")
 
-        if key in [32, 13]:
+        if key in [0, 32, 13]:
             action = 0
         elif key in [100]:
             action = 1
