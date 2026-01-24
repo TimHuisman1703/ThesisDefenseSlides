@@ -13,7 +13,7 @@ MOUSE_CONTROLLED = True
 LOOK_BACK = 5
 LOOK_AHEAD = 15
 MARGIN = 5
-VERBOSE = False
+VERBOSE = True
 
 WINDOW_NAME = "Thesis Defense"
 
@@ -130,7 +130,7 @@ def present(framerate, fullscreen, mouse_controlled):
             action = 0
         elif key in [100]:
             action = 1
-        elif key in [2162688, 2490368, 2424832, 97]:
+        elif key in [2162688, 2490368, 2424832, 97, 46]:
             action = 2
         elif key in [27]:
             action = 3
